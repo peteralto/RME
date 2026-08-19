@@ -58,12 +58,11 @@ jobs:
         with:
           vcpkgGitCommitId: ${{ env.LUKKA_RUN_VCPKG_SHA }}
 
-      - name: Install Dependencies via vcpkg (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $deps = @("wxwidgets", "boost-thread", "boost-system", "libarchive", "freeglut", "zlib", "lua", "cpr", "nlohmann-json")
-          & "$env:VCPKG_ROOT/vcpkg" install $deps --triplet x64-windows-static
+    - name: Install Dependencies via vcpkg (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        & "$env:VCPKG_ROOT/vcpkg" install --triplet x64-windows-static
 
       # --- Configure ---
       - name: Configure CMake (Linux)
