@@ -129,7 +129,7 @@ endif()
 
 include(${wxWidgets_USE_FILE})
 include(source/CMakeLists.txt)
-add_executable(rme ${rme_H} ${rme_SRC})
+add_executable(rme WIN32 ${rme_H} ${rme_SRC})
 
 set_target_properties(rme PROPERTIES CXX_STANDARD 17)
 set_target_properties(rme PROPERTIES CXX_STANDARD_REQUIRED ON)
