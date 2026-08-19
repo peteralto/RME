@@ -26,6 +26,7 @@ jobs:
     env:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
       LUKKA_RUN_VCPKG_SHA: '734f8130ffe2f02cf855a3a42a2958f01b3fb005'
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-binary-cache
 
     steps:
       - name: Checkout repository
@@ -45,11 +46,20 @@ jobs:
         with:
           vcpkgGitCommitId: ${{ env.LUKKA_RUN_VCPKG_SHA }}
 
-    - name: Install Dependencies via vcpkg (Windows)
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: |
-        & "$env:VCPKG_ROOT/vcpkg" install --triplet x64-windows-static
+      # --- vcpkg Cache ---
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Install Dependencies via vcpkg
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT/vcpkg" install --triplet x64-windows-static
 
       # --- Configure ---
       - name: Configure CMake (Windows)
