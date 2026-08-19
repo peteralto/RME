@@ -311,7 +311,10 @@ public:
 	}
 	bool isMetaItem() const {
 		return g_items[id].isMetaItem();
-	}
+	}	
+	bool hasElevation() const {
+		return g_items[id].hasElevation;
+	}	
 
 	// Slot-based Item Types
 	bool isWeapon() const {
