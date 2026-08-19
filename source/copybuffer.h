@@ -20,6 +20,8 @@
 
 #include <wx/dataobj.h>
 
+#include <map>
+
 #include "position.h"
 #include "basemap.h"
 
@@ -48,6 +50,10 @@ public:
 private:
 	Position copyPos;
 	BaseMap* tiles;
+	// House exits that were located inside the copied/cut area.
+	// Key   = house id
+	// Value = absolute position of the exit at the time of the copy/cut
+	std::map<uint32_t, Position> houseExits;
 };
 
 #endif

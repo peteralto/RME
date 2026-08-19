@@ -45,6 +45,16 @@ Change* Change::Create(House* house, const Position& where) {
 	return c;
 }
 
+Change* Change::Create(Town* town, const Position& where) {
+	Change* c = newd Change();
+	c->type = CHANGE_MOVE_TOWN_TEMPLE;
+	std::pair<uint32_t, Position>* p = newd std::pair<uint32_t, Position>;
+	p->first = town->getID();
+	p->second = where;
+	c->data = p;
+	return c;
+}
+
 Change* Change::Create(Waypoint* wp, const Position& where) {
 	Change* c = newd Change();
 	c->type = CHANGE_MOVE_WAYPOINT;
@@ -66,6 +76,7 @@ void Change::clear() {
 			delete reinterpret_cast<Tile*>(data);
 			break;
 		case CHANGE_MOVE_HOUSE_EXIT:
+		case CHANGE_MOVE_TOWN_TEMPLE:
 			ASSERT(data);
 			delete reinterpret_cast<std::pair<uint32_t, Position>*>(data);
 			break;
@@ -235,6 +246,19 @@ void Action::commit(DirtyList* dirty_list) {
 				break;
 			}
 
+			case CHANGE_MOVE_TOWN_TEMPLE: {
+				std::pair<uint32_t, Position>* p = reinterpret_cast<std::pair<uint32_t, Position>*>(c->data);
+				ASSERT(p);
+				Town* whattown = editor.map.towns.getTown(p->first);
+
+				if (whattown) {
+					Position oldpos = whattown->getTemplePosition();
+					whattown->setTemplePosition(p->second);
+					p->second = oldpos;
+				}
+				break;
+			}
+
 			case CHANGE_MOVE_HOUSE_EXIT: {
 				std::pair<uint32_t, Position>* p = reinterpret_cast<std::pair<uint32_t, Position>*>(c->data);
 				ASSERT(p);
@@ -265,7 +289,9 @@ void Action::commit(DirtyList* dirty_list) {
 						}
 					}
 
-					newtile->increaseWaypointCount();
+					if (newtile) {
+						newtile->increaseWaypointCount();
+					}
 
 					// Update shit
 					Position oldpos = wp->pos;
@@ -357,6 +383,19 @@ void Action::undo(DirtyList* dirty_list) {
 				if (editor.IsLiveClient() && dirty_list && type != ACTION_REMOTE) {
 					// Local action, assemble changes
 					dirty_list->AddChange(c);
+				}
+				break;
+			}
+
+			case CHANGE_MOVE_TOWN_TEMPLE: {
+				std::pair<uint32_t, Position>* p = reinterpret_cast<std::pair<uint32_t, Position>*>(c->data);
+				ASSERT(p);
+				Town* whattown = editor.map.towns.getTown(p->first);
+
+				if (whattown) {
+					Position oldpos = whattown->getTemplePosition();
+					whattown->setTemplePosition(p->second);
+					p->second = oldpos;
 				}
 				break;
 			}

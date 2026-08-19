@@ -25,6 +25,7 @@
 class Editor;
 class Tile;
 class House;
+class Town;
 class Waypoint;
 class Change;
 class Action;
@@ -36,6 +37,7 @@ enum ChangeType {
 	CHANGE_TILE,
 	CHANGE_MOVE_HOUSE_EXIT,
 	CHANGE_MOVE_WAYPOINT,
+	CHANGE_MOVE_TOWN_TEMPLE,
 };
 
 class Change {
@@ -49,6 +51,7 @@ public:
 	Change(Tile* tile);
 	static Change* Create(House* house, const Position& where);
 	static Change* Create(Waypoint* wp, const Position& where);
+	static Change* Create(Town* town, const Position& where);
 	~Change();
 	void clear();
 

@@ -1007,6 +1007,58 @@ void Editor::moveSelection(Position offset) {
 	BatchAction* batchAction = actionQueue->createBatch(ACTION_MOVE); // Our saved action batch, for undo!
 	Action* action;
 
+	// Pre-pass over the selection, done before anything is modified.
+	//
+	// moved_positions  : every position that is actually being relocated. Used to
+	//                    decide which teleport destinations should follow the move.
+	// moved_house_exits: house exits standing on those tiles. House exits live in the
+	//                    House object (indexed on the TileLocation), not on the Tile,
+	//                    so they are not carried over by the tile move below. The same
+	//                    applies to waypoints and to town temple positions, collected
+	//                    right after this loop.
+	std::set<Position> moved_positions;
+	std::map<uint32_t, Position> moved_house_exits;
+	for (TileSet::iterator it = selection.begin(); it != selection.end(); ++it) {
+		Tile* tile = (*it);
+		if (!tile->ground || !tile->ground->isSelected()) {
+			continue;
+		}
+
+		moved_positions.insert(tile->getPosition());
+
+		const HouseExitList* exits = tile->getHouseExits();
+		if (!exits) {
+			continue;
+		}
+
+		for (HouseExitList::const_iterator eit = exits->begin(); eit != exits->end(); ++eit) {
+			moved_house_exits[*eit] = tile->getPosition();
+		}
+	}
+
+	// Waypoints and town temples sitting on the moved tiles. Both collections are
+	// usually far smaller than the selection, so they are scanned instead of the
+	// tiles being looked up one by one.
+	std::vector<Waypoint*> moved_waypoints;
+	if (!moved_positions.empty()) {
+		for (WaypointMap::iterator it = map.waypoints.begin(); it != map.waypoints.end(); ++it) {
+			Waypoint* waypoint = it->second;
+			if (waypoint && moved_positions.count(waypoint->pos) > 0) {
+				moved_waypoints.push_back(waypoint);
+			}
+		}
+	}
+
+	std::vector<Town*> moved_towns;
+	if (!moved_positions.empty()) {
+		for (TownMap::iterator it = map.towns.begin(); it != map.towns.end(); ++it) {
+			Town* town = it->second;
+			if (town && moved_positions.count(town->getTemplePosition()) > 0) {
+				moved_towns.push_back(town);
+			}
+		}
+	}
+
 	// Remove tiles from the map
 	action = actionQueue->createAction(batchAction); // Our action!
 	bool doborders = false;
@@ -1050,7 +1102,10 @@ void Editor::moveSelection(Position offset) {
 			tmp_storage_tile->house_id = new_src_tile->house_id;
 			new_src_tile->house_id = 0;
 			tmp_storage_tile->setMapFlags(new_src_tile->getMapFlags());
-			new_src_tile->setMapFlags(TILESTATE_NONE);
+			// setMapFlags() ORs the value in, so passing TILESTATE_NONE was a no-op and
+			// the zone flags (PZ / no-pvp / no-logout / pvp / refresh) stayed behind on
+			// the source tile. Clear them explicitly instead.
+			new_src_tile->unsetMapFlags(0xFFFF);
 			doborders = true;
 		}
 
@@ -1142,6 +1197,26 @@ void Editor::moveSelection(Position offset) {
 			delete tile;
 			continue;
 		}
+
+		// Retarget teleports whose destination is inside the area being moved.
+		// Destinations pointing outside the selection are left untouched, so a
+		// teleport that leads to another city keeps working.
+		for (ItemVector::iterator iit = tile->items.begin(); iit != tile->items.end(); ++iit) {
+			Teleport* teleport = dynamic_cast<Teleport*>(*iit);
+			if (!teleport || !teleport->hasDestination()) {
+				continue;
+			}
+
+			const Position destination = teleport->getDestination();
+			if (moved_positions.count(destination) == 0) {
+				continue;
+			}
+
+			Position new_destination = destination - offset;
+			if (new_destination.isValid()) {
+				teleport->setDestination(new_destination);
+			}
+		}
 		// Create the duplicate dest tile, which will replace the old one later
 		TileLocation* location = map.createTileL(new_pos);
 		Tile* old_dest_tile = location->get();
@@ -1163,6 +1238,44 @@ void Editor::moveSelection(Position offset) {
 		}
 
 		action->addChange(newd Change(new_dest_tile));
+	}
+
+	// Move the house exits along with the tiles. Appended after the tile changes
+	// so the destination tiles already exist when setExit() is executed.
+	for (std::map<uint32_t, Position>::const_iterator it = moved_house_exits.begin(); it != moved_house_exits.end(); ++it) {
+		House* house = map.houses.getHouse(it->first);
+		if (!house) {
+			continue;
+		}
+
+		Position new_exit = it->second - offset;
+		if (!new_exit.isValid() || new_exit == house->getExit()) {
+			continue;
+		}
+
+		action->addChange(Change::Create(house, new_exit));
+	}
+
+	// Move the waypoints along with the tiles.
+	for (std::vector<Waypoint*>::const_iterator it = moved_waypoints.begin(); it != moved_waypoints.end(); ++it) {
+		Waypoint* waypoint = (*it);
+		Position new_pos = waypoint->pos - offset;
+		if (!new_pos.isValid() || new_pos == waypoint->pos) {
+			continue;
+		}
+
+		action->addChange(Change::Create(waypoint, new_pos));
+	}
+
+	// Move the town temple positions along with the tiles.
+	for (std::vector<Town*>::const_iterator it = moved_towns.begin(); it != moved_towns.end(); ++it) {
+		Town* town = (*it);
+		Position new_pos = town->getTemplePosition() - offset;
+		if (!new_pos.isValid() || new_pos == town->getTemplePosition()) {
+			continue;
+		}
+
+		action->addChange(Change::Create(town, new_pos));
 	}
 
 	// Commit changes to the map

@@ -21,6 +21,7 @@
 #include "editor.h"
 #include "gui.h"
 #include "creature.h"
+#include "complexitem.h" // Teleport
 
 CopyBuffer::CopyBuffer() :
 	tiles(newd BaseMap()) {
@@ -48,6 +49,7 @@ Position CopyBuffer::getPosition() const {
 void CopyBuffer::clear() {
 	delete tiles;
 	tiles = nullptr;
+	houseExits.clear();
 }
 
 void CopyBuffer::copy(Editor& editor, int floor) {
@@ -87,6 +89,17 @@ void CopyBuffer::copy(Editor& editor, int floor) {
 		}
 		if (tile->spawn && tile->spawn->isSelected()) {
 			copied_tile->spawn = tile->spawn->deepCopy();
+		}
+
+		// If this tile is the exit of one or more houses, remember it so the
+		// exit can follow the tiles when they are pasted somewhere else.
+		if (tile->ground && tile->ground->isSelected()) {
+			const HouseExitList* exits = tile->getHouseExits();
+			if (exits) {
+				for (HouseExitList::const_iterator eit = exits->begin(); eit != exits->end(); ++eit) {
+					houseExits[*eit] = tile->getPosition();
+				}
+			}
 		}
 
 		tiles->setTile(copied_tile);
@@ -134,7 +147,10 @@ void CopyBuffer::cut(Editor& editor, int floor) {
 			copied_tile->house_id = newtile->house_id;
 			newtile->house_id = 0;
 			copied_tile->setMapFlags(tile->getMapFlags());
-			newtile->setMapFlags(TILESTATE_NONE);
+			// setMapFlags() ORs the value in, so passing TILESTATE_NONE was a no-op and
+			// the zone flags (PZ / no-pvp / no-logout / pvp / refresh) stayed behind on
+			// the tile that was cut out. Clear them explicitly instead.
+			newtile->unsetMapFlags(0xFFFF);
 		}
 
 		ItemVector tile_selection = newtile->popSelectedItems();
@@ -152,6 +168,16 @@ void CopyBuffer::cut(Editor& editor, int floor) {
 		if (newtile->spawn && newtile->spawn->isSelected()) {
 			copied_tile->spawn = newtile->spawn;
 			newtile->spawn = nullptr;
+		}
+
+		// Same as in copy(): remember any house exit standing on this tile.
+		if (tile->ground && tile->ground->isSelected()) {
+			const HouseExitList* exits = tile->getHouseExits();
+			if (exits) {
+				for (HouseExitList::const_iterator eit = exits->begin(); eit != exits->end(); ++eit) {
+					houseExits[*eit] = tile->getPosition();
+				}
+			}
 		}
 
 		tiles->setTile(copied_tile->getPosition(), copied_tile);
@@ -214,6 +240,13 @@ void CopyBuffer::paste(Editor& editor, const Position& toPosition) {
 		return;
 	}
 
+	// Positions held by the buffer, in their original (copy time) coordinates.
+	// Used to decide which teleport destinations should follow the paste.
+	std::set<Position> buffer_positions;
+	for (MapIterator it = tiles->begin(); it != tiles->end(); ++it) {
+		buffer_positions.insert((*it)->getPosition());
+	}
+
 	BatchAction* batchAction = editor.actionQueue->createBatch(ACTION_PASTE_TILES);
 	Action* action = editor.actionQueue->createAction(batchAction);
 	for (MapIterator it = tiles->begin(); it != tiles->end(); ++it) {
@@ -229,6 +262,26 @@ void CopyBuffer::paste(Editor& editor, const Position& toPosition) {
 		Tile* old_dest_tile = location->get();
 		Tile* new_dest_tile = nullptr;
 		copy_tile->setLocation(location);
+
+		// Retarget teleports whose destination is inside the copied area.
+		// Destinations pointing outside the buffer are left untouched, so a
+		// teleport that leads to another city keeps working.
+		for (ItemVector::iterator iit = copy_tile->items.begin(); iit != copy_tile->items.end(); ++iit) {
+			Teleport* teleport = dynamic_cast<Teleport*>(*iit);
+			if (!teleport || !teleport->hasDestination()) {
+				continue;
+			}
+
+			const Position destination = teleport->getDestination();
+			if (buffer_positions.count(destination) == 0) {
+				continue;
+			}
+
+			Position new_destination = destination - copyPos + toPosition;
+			if (new_destination.isValid()) {
+				teleport->setDestination(new_destination);
+			}
+		}
 
 		if (g_settings.getInteger(Config::MERGE_PASTE) || !copy_tile->ground) {
 			if (old_dest_tile) {
@@ -255,6 +308,54 @@ void CopyBuffer::paste(Editor& editor, const Position& toPosition) {
 
 		action->addChange(newd Change(new_dest_tile));
 	}
+
+	// Relocate the house exits that belonged to the copied area.
+	// This is appended *after* every tile change so that, when the action is
+	// commited, the destination tiles already exist when setExit() runs.
+	for (std::map<uint32_t, Position>::const_iterator eit = houseExits.begin(); eit != houseExits.end(); ++eit) {
+		House* house = editor.map.houses.getHouse(eit->first);
+		if (!house) {
+			continue;
+		}
+
+		Position newExit = eit->second - copyPos + toPosition;
+		if (!newExit.isValid() || newExit == house->getExit()) {
+			continue;
+		}
+
+		action->addChange(Change::Create(house, newExit));
+	}
+
+	// Relocate waypoints that were standing inside the copied area.
+	for (WaypointMap::iterator wit = editor.map.waypoints.begin(); wit != editor.map.waypoints.end(); ++wit) {
+		Waypoint* waypoint = wit->second;
+		if (!waypoint || buffer_positions.count(waypoint->pos) == 0) {
+			continue;
+		}
+
+		Position newPos = waypoint->pos - copyPos + toPosition;
+		if (!newPos.isValid() || newPos == waypoint->pos) {
+			continue;
+		}
+
+		action->addChange(Change::Create(waypoint, newPos));
+	}
+
+	// Relocate town temple positions that were inside the copied area.
+	for (TownMap::iterator tit = editor.map.towns.begin(); tit != editor.map.towns.end(); ++tit) {
+		Town* town = tit->second;
+		if (!town || buffer_positions.count(town->getTemplePosition()) == 0) {
+			continue;
+		}
+
+		Position newPos = town->getTemplePosition() - copyPos + toPosition;
+		if (!newPos.isValid() || newPos == town->getTemplePosition()) {
+			continue;
+		}
+
+		action->addChange(Change::Create(town, newPos));
+	}
+
 	batchAction->addAndCommitAction(action);
 
 	if (g_settings.getInteger(Config::USE_AUTOMAGIC) && g_settings.getInteger(Config::BORDERIZE_PASTE)) {
