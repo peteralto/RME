@@ -134,7 +134,9 @@ void MapDrawer::SetupVars() {
 	dragging_draw = canvas->dragging_draw;
 
 	zoom = (float)canvas->GetZoom();
-	tile_size = int(TileSize / zoom); // after zoom
+	// Clamped to 1: at zoom >= TileSize this truncates to 0 and the
+	// screensize / tile_size divisions below become a division by zero.
+	tile_size = std::max(1, int(TileSize / zoom)); // after zoom
 	floor = canvas->GetFloor();
 
 	if (options.show_all_floors) {
@@ -341,13 +343,14 @@ static const std::map<uint16_t, TileIdColor>& GetTileIdColors() {
 	return g_tile_id_colors;
 }
 
-// Zoom limits for tooltips (zoom is a divisor: 1.0 = 100%, 10.0 = 10%).
-// A tooltip is only built/drawn while zoom is below these values.
+// Zoom limits for tooltips. Zoom is a divisor, so the displayed percentage is
+// 100 / zoom -- a limit of 100/14 means "only while zoomed in past 14%".
 // The original code hardcoded 10.0 for the balloon and 1.0 for the text, which
-// made tooltips vanish as soon as you zoomed out a little. Raise or lower these
-// to taste; the old behaviour is TOOLTIP_ZOOM_LIMIT 10.0 / TOOLTIP_TEXT_ZOOM_LIMIT 1.0.
-static const double TOOLTIP_ZOOM_LIMIT = 1000.0;
-static const double TOOLTIP_TEXT_ZOOM_LIMIT = 1000.0;
+// made the text vanish as soon as you zoomed out past 100%. Both now use the
+// same threshold so the balloon and its text always appear together.
+static const double TOOLTIP_MIN_ZOOM_PERCENT = 14.0;
+static const double TOOLTIP_ZOOM_LIMIT = 100.0 / TOOLTIP_MIN_ZOOM_PERCENT;
+static const double TOOLTIP_TEXT_ZOOM_LIMIT = TOOLTIP_ZOOM_LIMIT;
 
 // glRasterPos is clipped as a whole: if the position falls outside the view
 // volume the raster position becomes invalid and *nothing* of the string is
@@ -2125,6 +2128,12 @@ void MapDrawer::DrawHookIndicator(int x, int y, const ItemType& type) {
 }
 
 void MapDrawer::DrawTooltips() {
+	// Every other pass leaves GL_TEXTURE_2D enabled, which made the balloon
+	// polygon get modulated by whatever sprite texture happened to be bound --
+	// that is why the background looked washed out and semi transparent instead
+	// of solid white. Untextured flat colour is what we actually want here.
+	glDisable(GL_TEXTURE_2D);
+
 	for (std::vector<MapTooltip*>::const_iterator it = tooltips.begin(); it != tooltips.end(); ++it) {
 		MapTooltip* tooltip = (*it);
 		const char* text = tooltip->text.c_str();
@@ -2231,6 +2240,8 @@ void MapDrawer::DrawTooltips() {
 			}
 		}
 	}
+
+	glEnable(GL_TEXTURE_2D);
 }
 
 void MapDrawer::DrawLight() {
