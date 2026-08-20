@@ -119,6 +119,15 @@ MainToolBar::MainToolBar(wxWindow* parent, wxAuiManager* manager) {
 	go_button = newd wxButton(position_toolbar, TOOLBAR_POSITION_GO, wxEmptyString, wxDefaultPosition, parent->FromDIP(wxSize(22, 20)));
 	go_button->SetBitmap(go_bitmap);
 	go_button->SetToolTip("Go To Position");
+	// NumberTextCtrl installs a wxFILTER_NUMERIC validator, and validators are
+	// consulted in wxWindow::TryBefore -- ahead of the control's own handlers.
+	// It was swallowing pastes like "25475, 32464, 7" because of the commas, so
+	// OnPastePositionText never saw them. CheckRange() already strips anything
+	// non numeric on focus loss, so the validator is redundant here.
+	x_control->SetValidator(wxDefaultValidator);
+	y_control->SetValidator(wxDefaultValidator);
+	z_control->SetValidator(wxDefaultValidator);
+
 	position_toolbar->AddControl(x_control);
 	position_toolbar->AddControl(y_control);
 	position_toolbar->AddControl(z_control);
@@ -511,6 +520,8 @@ void MainToolBar::OnPositionButtonClick(wxCommandEvent& event) {
 	}
 
 	if (event.GetId() == TOOLBAR_POSITION_GO) {
+		SplitCombinedPosition();
+
 		Position pos(x_control->GetIntValue(), y_control->GetIntValue(), z_control->GetIntValue());
 		if (pos.isValid()) {
 			g_gui.SetScreenCenterPosition(pos);
@@ -520,7 +531,10 @@ void MainToolBar::OnPositionButtonClick(wxCommandEvent& event) {
 
 void MainToolBar::OnPositionKeyUp(wxKeyEvent& event) {
 	if (event.GetKeyCode() == WXK_TAB) {
-		if (x_control->HasFocus()) {
+		if (x_control->HasFocus() && SplitCombinedPosition()) {
+			// The whole position was in X, so there is nothing left to tab into.
+			go_button->SetFocus();
+		} else if (x_control->HasFocus()) {
 			y_control->SelectAll();
 			y_control->SetFocus();
 		} else if (y_control->HasFocus()) {
@@ -530,12 +544,34 @@ void MainToolBar::OnPositionKeyUp(wxKeyEvent& event) {
 			go_button->SetFocus();
 		}
 	} else if (event.GetKeyCode() == WXK_NUMPAD_ENTER || event.GetKeyCode() == WXK_RETURN) {
+		// Typing or pasting a whole position into X and hitting enter.
+		SplitCombinedPosition();
+
 		Position pos(x_control->GetIntValue(), y_control->GetIntValue(), z_control->GetIntValue());
 		if (pos.isValid()) {
 			g_gui.SetScreenCenterPosition(pos);
 		}
 	}
 	event.Skip();
+}
+
+bool MainToolBar::SplitCombinedPosition() {
+	const wxString text = x_control->GetValue();
+	if (text.find_first_not_of("0123456789") == wxString::npos) {
+		// Plain number, nothing to split.
+		return false;
+	}
+
+	const Map& currentMap = g_gui.GetCurrentMap();
+	Position position;
+	if (!posFromString(text.ToStdString(), position, currentMap.getWidth(), currentMap.getHeight())) {
+		return false;
+	}
+
+	x_control->SetIntValue(position.x);
+	y_control->SetIntValue(position.y);
+	z_control->SetIntValue(position.z);
+	return true;
 }
 
 void MainToolBar::OnPastePositionText(wxClipboardTextEvent& event) {

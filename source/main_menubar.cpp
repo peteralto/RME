@@ -118,6 +118,7 @@ MainMenuBar::MainMenuBar(MainFrame* frame) :
 	MAKE_ACTION(MAP_REMOVE_ITEMS, wxITEM_NORMAL, OnMapRemoveItems);
 	MAKE_ACTION(MAP_REMOVE_CORPSES, wxITEM_NORMAL, OnMapRemoveCorpses);
 	MAKE_ACTION(MAP_REMOVE_UNREACHABLE_TILES, wxITEM_NORMAL, OnMapRemoveUnreachable);
+	MAKE_ACTION(MAP_REMOVE_ITEMS_ON_BEDS, wxITEM_NORMAL, OnMapRemoveItemsOnBeds);
 	MAKE_ACTION(MAP_CLEANUP, wxITEM_NORMAL, OnMapCleanup);
 	MAKE_ACTION(MAP_CLEAN_HOUSE_ITEMS, wxITEM_NORMAL, OnMapCleanHouseItems);
 	MAKE_ACTION(MAP_PROPERTIES, wxITEM_NORMAL, OnMapProperties);
@@ -428,6 +429,7 @@ void MainMenuBar::Update() {
 	EnableItem(MAP_REMOVE_ITEMS, is_host);
 	EnableItem(MAP_REMOVE_CORPSES, is_local);
 	EnableItem(MAP_REMOVE_UNREACHABLE_TILES, is_local);
+	EnableItem(MAP_REMOVE_ITEMS_ON_BEDS, is_local);
 	EnableItem(CLEAR_INVALID_HOUSES, is_local);
 	EnableItem(CLEAR_MODIFIED_STATE, is_local);
 
@@ -1491,6 +1493,109 @@ void MainMenuBar::OnMapRemoveUnreachable(wxCommandEvent& WXUNUSED(event)) {
 
 		g_gui.GetCurrentMap().doChange();
 	}
+}
+
+void MainMenuBar::OnMapRemoveItemsOnBeds(wxCommandEvent& WXUNUSED(event)) {
+	if (!g_gui.IsEditorOpen()) {
+		return;
+	}
+
+	// Server ids stripped from any tile that also holds a bed. Edit this list to
+	// change what gets removed; the ids are OTB server ids, the same ones used
+	// in items.xml, not client ids.
+	static const uint16_t REMOVE_IDS[] = { 1548, 16000 };
+
+	wxString question;
+	question << "Remove items ";
+	for (size_t i = 0; i < sizeof(REMOVE_IDS) / sizeof(REMOVE_IDS[0]); ++i) {
+		if (i > 0) {
+			question << ", ";
+		}
+		question << REMOVE_IDS[i];
+	}
+	question << " from every tile that contains a bed?";
+
+	if (g_gui.PopupDialog("Remove Items on Beds", question, wxYES | wxNO) != wxID_YES) {
+		return;
+	}
+
+	g_gui.GetCurrentEditor()->selection.clear();
+	g_gui.GetCurrentEditor()->actionQueue->clear();
+
+	g_gui.CreateLoadBar("Searching map for items to remove...");
+
+	Map& map = g_gui.GetCurrentMap();
+	int64_t removed = 0;
+	int64_t tiles_touched = 0;
+	int64_t done = 0;
+	const int64_t total = std::max<int64_t>(1, map.getTileCount());
+
+	for (MapIterator it = map.begin(); it != map.end(); ++it) {
+		if (++done % 0x800 == 0) {
+			g_gui.SetLoadDone((unsigned int)(100 * done / total));
+		}
+
+		Tile* tile = (*it)->get();
+		if (!tile) {
+			continue;
+		}
+
+		// First pass: does this tile hold a bed at all? The ground is checked
+		// too, since a bed could in principle sit there.
+		bool has_bed = false;
+		if (tile->ground && g_items[tile->ground->getID()].isBed()) {
+			has_bed = true;
+		}
+		if (!has_bed) {
+			for (Item* item : tile->items) {
+				if (g_items[item->getID()].isBed()) {
+					has_bed = true;
+					break;
+				}
+			}
+		}
+
+		if (!has_bed) {
+			continue;
+		}
+
+		// Second pass: strip the listed ids. Only the item stack is touched --
+		// deleting the ground would leave a hole in the map.
+		bool changed = false;
+		for (ItemVector::iterator iit = tile->items.begin(); iit != tile->items.end();) {
+			Item* item = *iit;
+			bool remove = false;
+			for (size_t i = 0; i < sizeof(REMOVE_IDS) / sizeof(REMOVE_IDS[0]); ++i) {
+				if (item->getID() == REMOVE_IDS[i]) {
+					remove = true;
+					break;
+				}
+			}
+
+			if (remove) {
+				iit = tile->items.erase(iit);
+				delete item;
+				++removed;
+				changed = true;
+			} else {
+				++iit;
+			}
+		}
+
+		if (changed) {
+			++tiles_touched;
+			tile->update();
+		}
+	}
+
+	g_gui.DestroyLoadBar();
+
+	wxString msg;
+	msg << removed << " item(s) deleted from " << tiles_touched << " tile(s) with beds.";
+	g_gui.PopupDialog("Remove completed", msg, wxOK);
+
+	map.doChange();
+	g_gui.RefreshView();
 }
 
 void MainMenuBar::OnClearHouseTiles(wxCommandEvent& WXUNUSED(event)) {

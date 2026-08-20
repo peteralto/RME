@@ -44,6 +44,10 @@ public:
 	void OnPositionButtonClick(wxCommandEvent& event);
 	void OnPositionKeyUp(wxKeyEvent& event);
 	void OnPastePositionText(wxClipboardTextEvent& event);
+
+	// If the X field holds a whole position ("25475, 32464, 7"), splits it
+	// across the three fields. Returns true when it did.
+	bool SplitCombinedPosition();
 	void OnSizesButtonClick(wxCommandEvent& event);
 
 private:

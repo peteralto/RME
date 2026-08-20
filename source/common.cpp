@@ -176,6 +176,32 @@ std::string wstring2string(const std::wstring& widestring) {
 	return std::string((const char*)s.mb_str(wxConvUTF8));
 }
 
+bool posFromString(const std::string& text, Position& position, const int mapWidth /* = MAP_MAX_WIDTH */, const int mapHeight /* = MAP_MAX_HEIGHT */) {
+	if (text.empty()) {
+		return false;
+	}
+
+	std::smatch matches;
+	static const std::regex expression = std::regex(R"(.*?(\d+).*?(\d+).*?(\d+).*?)", std::regex_constants::ECMAScript);
+	if (!std::regex_match(text, matches, expression)) {
+		return false;
+	}
+
+	try {
+		const int tmpX = std::stoi(matches.str(1));
+		const int tmpY = std::stoi(matches.str(2));
+		const int tmpZ = std::stoi(matches.str(3));
+
+		const Position parsedPos = Position(tmpX, tmpY, tmpZ);
+		if (parsedPos.isValid() && tmpX <= mapWidth && tmpY <= mapHeight) {
+			position = parsedPos;
+			return true;
+		}
+	} catch (const std::out_of_range&) { }
+
+	return false;
+}
+
 bool posFromClipboard(Position& position, const int mapWidth /* = MAP_MAX_WIDTH */, const int mapHeight /* = MAP_MAX_HEIGHT */) {
 	if (!wxTheClipboard->Open()) {
 		return false;
@@ -189,30 +215,8 @@ bool posFromClipboard(Position& position, const int mapWidth /* = MAP_MAX_WIDTH 
 	wxTextDataObject data;
 	wxTheClipboard->GetData(data);
 
-	std::string input = data.GetText().ToStdString();
-	if (input.empty()) {
-		wxTheClipboard->Close();
-		return false;
-	}
-
-	bool done = false;
-	std::smatch matches;
-	static const std::regex expression = std::regex(R"(.*?(\d+).*?(\d+).*?(\d+).*?)", std::regex_constants::ECMAScript);
-	if (std::regex_match(input, matches, expression)) {
-		try {
-			const int tmpX = std::stoi(matches.str(1));
-			const int tmpY = std::stoi(matches.str(2));
-			const int tmpZ = std::stoi(matches.str(3));
-
-			const Position pastedPos = Position(tmpX, tmpY, tmpZ);
-			if (pastedPos.isValid() && tmpX <= mapWidth && tmpY <= mapHeight) {
-				position.x = tmpX;
-				position.y = tmpY;
-				position.z = tmpZ;
-				done = true;
-			}
-		} catch (const std::out_of_range&) { }
-	}
+	const std::string input = data.GetText().ToStdString();
+	const bool done = posFromString(input, position, mapWidth, mapHeight);
 
 	wxTheClipboard->Close();
 	return done;
