@@ -100,6 +100,11 @@ public:
 		return light;
 	}
 
+	// Sprite textures record when they were last used so unused ones can be
+	// evicted. That timestamp used to come from a time() call on every single
+	// blit; call this once per frame instead and every blit just copies it.
+	static void refreshAccessClock();
+
 protected:
 	class Image;
 	class NormalImage;
@@ -115,6 +120,11 @@ protected:
 
 		bool isGLLoaded;
 		int lastaccess;
+
+		// visit() used to call time(nullptr) on every single sprite blit, which
+		// at low zoom means hundreds of thousands of calls per frame. The clock
+		// is now sampled once per frame instead; see GameSprite::Image::visit.
+		static int currenttime;
 
 		void visit();
 		virtual void clean(int time);

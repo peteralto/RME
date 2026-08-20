@@ -152,15 +152,17 @@ void MinimapWindow::OnPaint(wxPaintEvent& event) {
 			int view_start_x, view_start_y;
 			int view_end_x, view_end_y;
 
-			int tile_size = int(TileSize / canvas->GetZoom()); // after zoom
+			const double canvas_zoom = canvas->GetZoom();
 
 			int floor_offset = (floor > GROUND_LAYER ? 0 : (GROUND_LAYER - floor));
 
 			view_start_x = view_scroll_x / TileSize + floor_offset;
 			view_start_y = view_scroll_y / TileSize + floor_offset;
 
-			view_end_x = view_start_x + screensize_x / tile_size + 1;
-			view_end_y = view_start_y + screensize_y / tile_size + 1;
+			// Same reasoning as MapDrawer::SetupVars: derive from zoom, not from
+			// the truncated tile_size, which hits 0 at zoom >= TileSize.
+			view_end_x = view_start_x + int(screensize_x * canvas_zoom / TileSize) + 1;
+			view_end_y = view_start_y + int(screensize_y * canvas_zoom / TileSize) + 1;
 
 			for (int x = view_start_x; x <= view_end_x; ++x) {
 				pdc.DrawPoint(x - start_x, view_start_y - start_y);

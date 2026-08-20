@@ -22,16 +22,18 @@
 #include "tile.h"
 #include "creature.h"
 
-// Zoom is a divisor: the displayed percentage is 100 / zoom.
-// MAP_MAX_ZOOM 25.0 => 4% minimum zoom, MAP_MIN_ZOOM 0.125 => 800% maximum.
+// Zoom is a divisor: the displayed percentage is 100 / zoom, so
+//   4% => 25.0    3% => 33.4    2% => 50.0    1% => 100.0
+// MAP_MIN_ZOOM 0.125 => 800% maximum zoom.
 //
-// Do not raise MAP_MAX_ZOOM to 32.0 or beyond: MapDrawer::SetupVars computes
-// tile_size as int(TileSize / zoom), which reaches 0 at zoom 32 (TileSize is
-// 32) and the following screensize / tile_size is an integer division by zero.
-// MapDrawer now clamps tile_size to a minimum of 1, but going much past 25.0
-// still means sub-pixel tiles and a very heavy draw loop.
+// The view-extent maths in MapDrawer::SetupVars and MinimapWindow no longer
+// divide by the truncated tile_size, so zoom values at or above TileSize (32)
+// are safe now. What remains is cost: the number of tiles walked per frame
+// grows with the square of the zoom, so 2% visits roughly four times as many
+// tiles as 4%. Raise this if you want to zoom further out, but expect the
+// draw loop to get slower on dense maps.
 static const double MAP_MIN_ZOOM = 0.125;
-static const double MAP_MAX_ZOOM = 25.0;
+static const double MAP_MAX_ZOOM = 50.0;
 
 class Item;
 class Creature;

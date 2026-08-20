@@ -1157,8 +1157,17 @@ void GameSprite::Image::unloadGLTexture(GLuint whatid) {
 	glDeleteTextures(1, &whatid);
 }
 
+// Sampled once per frame by MapDrawer::SetupVars. Texture eviction works on a
+// granularity of seconds (TEXTURE_LONGEVITY), so a frame of staleness here is
+// irrelevant, while calling time() per sprite is not.
+int GameSprite::Image::currenttime = 0;
+
+void GameSprite::refreshAccessClock() {
+	Image::currenttime = (int)time(nullptr);
+}
+
 void GameSprite::Image::visit() {
-	lastaccess = time(nullptr);
+	lastaccess = currenttime;
 }
 
 void GameSprite::Image::clean(int time) {

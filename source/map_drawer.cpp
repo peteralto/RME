@@ -133,6 +133,9 @@ void MapDrawer::SetupVars() {
 	dragging = canvas->dragging;
 	dragging_draw = canvas->dragging_draw;
 
+	// One clock sample per frame, shared by every sprite touched while drawing.
+	GameSprite::refreshAccessClock();
+
 	zoom = (float)canvas->GetZoom();
 	// Clamped to 1: at zoom >= TileSize this truncates to 0 and the
 	// screensize / tile_size divisions below become a division by zero.
@@ -160,8 +163,12 @@ void MapDrawer::SetupVars() {
 		start_y -= 2;
 	}
 
-	end_x = start_x + screensize_x / tile_size + 2;
-	end_y = start_y + screensize_y / tile_size + 2;
+	// Derived from zoom directly rather than from the truncated tile_size:
+	// screensize / tile_size loses precision as tile_size shrinks and divides by
+	// zero once it truncates to 0 (zoom >= TileSize). Mathematically identical
+	// while tile_size is exact.
+	end_x = start_x + int(screensize_x * zoom / TileSize) + 2;
+	end_y = start_y + int(screensize_y * zoom / TileSize) + 2;
 }
 
 void MapDrawer::SetupGL() {
@@ -1829,8 +1836,13 @@ void MapDrawer::DrawTile(TileLocation* location) {
 	int map_y = location->getY();
 	int map_z = location->getZ();
 
+	// Building tooltip text walks every item on the tile and formats a string,
+	// so it must respect the same zoom gate the tooltips themselves use --
+	// otherwise it is pure cost per tile at zoom levels where nothing is shown.
+	const bool build_tooltips = options.show_tooltips && zoom < TOOLTIP_ZOOM_LIMIT;
+
 	Waypoint* waypoint = canvas->editor.map.waypoints.getWaypoint(location);
-	if (options.show_tooltips && location->getWaypointCount() > 0) {
+	if (build_tooltips && location->getWaypointCount() > 0) {
 		if (waypoint) {
 			WriteTooltip(waypoint, tooltip);
 		}
@@ -1955,7 +1967,7 @@ void MapDrawer::DrawTile(TileLocation* location) {
 		}
 	}
 
-	if (options.show_tooltips && map_z == floor && tile->ground) {
+	if (build_tooltips && map_z == floor && tile->ground) {
 		WriteTooltip(tile->ground, tooltip);
 	}
 	// end filters for ground tile
@@ -1966,7 +1978,7 @@ void MapDrawer::DrawTile(TileLocation* location) {
 		// Even when the item sprites themselves are hidden (zoomed out), the
 		// tooltip text still has to be collected, otherwise tooltips would pop
 		// out of existence at the hide_items_when_zoomed threshold.
-		if (!draw_items && options.show_tooltips && map_z == floor) {
+		if (!draw_items && build_tooltips && map_z == floor) {
 			for (ItemVector::iterator it = tile->items.begin(); it != tile->items.end(); it++) {
 				WriteTooltip(*it, tooltip, tile->isHouseTile());
 			}
@@ -1976,7 +1988,7 @@ void MapDrawer::DrawTile(TileLocation* location) {
 			// items on tile
 			for (ItemVector::iterator it = tile->items.begin(); it != tile->items.end(); it++) {
 				// item tooltip
-				if (options.show_tooltips && map_z == floor) {
+				if (build_tooltips && map_z == floor) {
 					WriteTooltip(*it, tooltip, tile->isHouseTile());
 				}
 
@@ -2041,7 +2053,7 @@ void MapDrawer::DrawTile(TileLocation* location) {
 
 		// tooltips -- deliberately outside the zoom gate above, so that showing
 		// them is governed by the View > Show tooltips option alone.
-		if (options.show_tooltips && zoom < TOOLTIP_ZOOM_LIMIT) {
+		if (build_tooltips) {
 			if (location->getWaypointCount() > 0) {
 				MakeTooltip(draw_x, draw_y, tooltip.str(), 0, 255, 0);
 			} else {
