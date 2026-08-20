@@ -1140,7 +1140,9 @@ void GameSprite::Image::createGLTexture(GLuint whatid) {
 	isGLLoaded = true;
 	g_gui.gfx.loaded_textures += 1;
 
-	glBindTexture(GL_TEXTURE_2D, whatid);
+	// Goes through the cache so it stays in sync -- this binds behind the map
+	// drawer's back, lazily, in the middle of a frame.
+	GLTextureState::bind(whatid);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); // Nearest-neighbor
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); // Nearest-neighbor
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, 0x812F); // GL_CLAMP_TO_EDGE
@@ -1160,6 +1162,10 @@ void GameSprite::Image::unloadGLTexture(GLuint whatid) {
 // Sampled once per frame by MapDrawer::SetupVars. Texture eviction works on a
 // granularity of seconds (TEXTURE_LONGEVITY), so a frame of staleness here is
 // irrelevant, while calling time() per sprite is not.
+namespace GLTextureState {
+	GLuint bound = 0xFFFFFFFFu;
+}
+
 int GameSprite::Image::currenttime = 0;
 
 void GameSprite::refreshAccessClock() {

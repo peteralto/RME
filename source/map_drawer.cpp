@@ -136,6 +136,10 @@ void MapDrawer::SetupVars() {
 	// One clock sample per frame, shared by every sprite touched while drawing.
 	GameSprite::refreshAccessClock();
 
+	// The GL context is shared with other canvases and with wx itself, so do not
+	// trust the cached binding across frames.
+	GLTextureState::invalidate();
+
 	zoom = (float)canvas->GetZoom();
 	// Clamped to 1: at zoom >= TileSize this truncates to 0 and the
 	// screensize / tile_size divisions below become a division by zero.
@@ -350,12 +354,15 @@ static const std::map<uint16_t, TileIdColor>& GetTileIdColors() {
 	return g_tile_id_colors;
 }
 
-// Zoom limits for tooltips. Zoom is a divisor, so the displayed percentage is
-// 100 / zoom -- a limit of 100/14 means "only while zoomed in past 14%".
-// The original code hardcoded 10.0 for the balloon and 1.0 for the text, which
-// made the text vanish as soon as you zoomed out past 100%. Both now use the
-// same threshold so the balloon and its text always appear together.
-static const double TOOLTIP_MIN_ZOOM_PERCENT = 14.0;
+// Zoom limit for tooltips. Zoom is a divisor, so the displayed percentage is
+// 100 / zoom and a limit of 100 percent means "only at 100% zoom or closer".
+//
+// This is tied to the text: glutBitmapCharacter draws in fixed window pixels
+// and cannot be scaled, while the balloon is built in ortho units that the
+// projection divides by zoom. The two only stay in step while zoom <= 1.0,
+// which is why the balloon and the text share a single threshold here.
+// Raising this past 100 makes the balloon shrink away from its own text.
+static const double TOOLTIP_MIN_ZOOM_PERCENT = 100.0;
 static const double TOOLTIP_ZOOM_LIMIT = 100.0 / TOOLTIP_MIN_ZOOM_PERCENT;
 static const double TOOLTIP_TEXT_ZOOM_LIMIT = TOOLTIP_ZOOM_LIMIT;
 
@@ -1704,7 +1711,7 @@ void MapDrawer::BlitSquare(int sx, int sy, int red, int green, int blue, int alp
 		return;
 	}
 
-	glBindTexture(GL_TEXTURE_2D, texnum);
+	GLTextureState::bind(texnum);
 	glColor4ub(uint8_t(red), uint8_t(green), uint8_t(blue), uint8_t(alpha));
 	glBegin(GL_QUADS);
 	glTexCoord2f(0.f, 0.f);
@@ -1839,11 +1846,17 @@ void MapDrawer::DrawTile(TileLocation* location) {
 	// Building tooltip text walks every item on the tile and formats a string,
 	// so it must respect the same zoom gate the tooltips themselves use --
 	// otherwise it is pure cost per tile at zoom levels where nothing is shown.
-	const bool build_tooltips = options.show_tooltips && zoom < TOOLTIP_ZOOM_LIMIT;
+	const bool build_tooltips = options.show_tooltips && zoom <= TOOLTIP_ZOOM_LIMIT;
 
-	Waypoint* waypoint = canvas->editor.map.waypoints.getWaypoint(location);
-	if (build_tooltips && location->getWaypointCount() > 0) {
-		if (waypoint) {
+	// Waypoints::getWaypoint(TileLocation*) is a linear scan over every waypoint
+	// on the map, and this used to run unconditionally for every tile drawn --
+	// tiles visited * waypoints defined comparisons per frame. TileLocation
+	// already knows whether a waypoint sits on it, so ask that first: the scan
+	// now happens only for the handful of tiles that actually have one.
+	Waypoint* waypoint = nullptr;
+	if (location->getWaypointCount() > 0) {
+		waypoint = canvas->editor.map.waypoints.getWaypoint(location);
+		if (build_tooltips && waypoint) {
 			WriteTooltip(waypoint, tooltip);
 		}
 	}
@@ -2172,6 +2185,10 @@ void MapDrawer::DrawTooltips() {
 			}
 		}
 
+		// Correct while zoom <= 1.0, which TOOLTIP_ZOOM_LIMIT guarantees: the
+		// balloon shrinks in ortho units exactly as much as the projection
+		// magnifies them, so it keeps a constant screen size and matches the
+		// fixed-pixel text.
 		float scale = zoom < 1.0f ? zoom : 1.0f;
 
 		width = (width + 8.0f) * scale;
@@ -2326,7 +2343,7 @@ void MapDrawer::TakeScreenshot(uint8_t* screenshot_buffer) {
 
 void MapDrawer::glBlitTexture(int sx, int sy, int texture_number, int red, int green, int blue, int alpha) {
 	if (texture_number != 0) {
-		glBindTexture(GL_TEXTURE_2D, texture_number);
+		GLTextureState::bind(texture_number);
 		glColor4ub(uint8_t(red), uint8_t(green), uint8_t(blue), uint8_t(alpha));
 		glBegin(GL_QUADS);
 		glTexCoord2f(0.f, 0.f);

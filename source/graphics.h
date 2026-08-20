@@ -75,6 +75,29 @@ protected:
 	wxBitmap* bm[SPRITE_SIZE_COUNT];
 };
 
+// Redundant glBindTexture calls are one of the more expensive things you can
+// do in immediate mode, and the map drawer issues one per sprite -- while
+// consecutive tiles very often share the same ground or border sprite. This
+// caches the currently bound texture so those repeats become a comparison.
+//
+// Every glBindTexture in the codebase must go through here, otherwise the
+// cache desynchronises and sprites get drawn with the wrong texture.
+namespace GLTextureState {
+	extern GLuint bound;
+
+	inline void bind(GLuint id) {
+		if (id != bound) {
+			glBindTexture(GL_TEXTURE_2D, id);
+			bound = id;
+		}
+	}
+
+	// Call after any code path that changed the binding behind our back.
+	inline void invalidate() {
+		bound = 0xFFFFFFFFu;
+	}
+}
+
 class GameSprite : public Sprite {
 public:
 	GameSprite();
