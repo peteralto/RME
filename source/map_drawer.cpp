@@ -354,17 +354,22 @@ static const std::map<uint16_t, TileIdColor>& GetTileIdColors() {
 	return g_tile_id_colors;
 }
 
-// Zoom limit for tooltips. Zoom is a divisor, so the displayed percentage is
-// 100 / zoom and a limit of 100 percent means "only at 100% zoom or closer".
+// Zoom limits for tooltips. Zoom is a divisor, so the displayed percentage is
+// 100 / zoom -- a limit of 100/10 means "down to 10% zoom".
 //
-// This is tied to the text: glutBitmapCharacter draws in fixed window pixels
-// and cannot be scaled, while the balloon is built in ortho units that the
-// projection divides by zoom. The two only stay in step while zoom <= 1.0,
-// which is why the balloon and the text share a single threshold here.
-// Raising this past 100 makes the balloon shrink away from its own text.
-static const double TOOLTIP_MIN_ZOOM_PERCENT = 100.0;
+// The balloon and its text have separate thresholds on purpose. The balloon is
+// built in ortho units, which the projection divides by zoom, so it can shrink
+// with the map. glutBitmapCharacter draws in fixed window pixels and cannot be
+// scaled at all, so the two only stay in step while zoom <= 1.0 (100%). Above
+// that the balloon is drawn empty, which is what marks the position on a zoomed
+// out map without a wall of unreadable overlapping text.
+//
+// TOOLTIP_TEXT_MIN_ZOOM_PERCENT must not go above 100 or the text will start
+// overflowing its own balloon.
+static const double TOOLTIP_MIN_ZOOM_PERCENT = 10.0;
+static const double TOOLTIP_TEXT_MIN_ZOOM_PERCENT = 100.0;
 static const double TOOLTIP_ZOOM_LIMIT = 100.0 / TOOLTIP_MIN_ZOOM_PERCENT;
-static const double TOOLTIP_TEXT_ZOOM_LIMIT = TOOLTIP_ZOOM_LIMIT;
+static const double TOOLTIP_TEXT_ZOOM_LIMIT = 100.0 / TOOLTIP_TEXT_MIN_ZOOM_PERCENT;
 
 // glRasterPos is clipped as a whole: if the position falls outside the view
 // volume the raster position becomes invalid and *nothing* of the string is
@@ -2185,10 +2190,11 @@ void MapDrawer::DrawTooltips() {
 			}
 		}
 
-		// Correct while zoom <= 1.0, which TOOLTIP_ZOOM_LIMIT guarantees: the
-		// balloon shrinks in ortho units exactly as much as the projection
-		// magnifies them, so it keeps a constant screen size and matches the
-		// fixed-pixel text.
+		// While zoomed in (zoom < 1) the balloon shrinks in ortho units exactly
+		// as much as the projection magnifies them, so it keeps a constant screen
+		// size and lines up with the fixed-pixel text. Zoomed out it is clamped
+		// and the balloon shrinks on screen -- fine, because past 100% only the
+		// empty balloon is drawn (see TOOLTIP_TEXT_ZOOM_LIMIT).
 		float scale = zoom < 1.0f ? zoom : 1.0f;
 
 		width = (width + 8.0f) * scale;

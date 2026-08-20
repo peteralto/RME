@@ -1389,6 +1389,11 @@ void Editor::destroySelection() {
 			tile_count++;
 
 			Tile* tile = *it;
+
+			// Whether the tile itself is being removed, as opposed to just some
+			// items standing on it. Same criterion the move/cut paths use.
+			const bool ground_selected = tile->ground && tile->ground->isSelected();
+
 			Tile* newtile = tile->deepCopy(map);
 
 			ItemVector tile_selection = newtile->popSelectedItems();
@@ -1406,6 +1411,24 @@ void Editor::destroySelection() {
 			if (newtile->spawn && newtile->spawn->isSelected()) {
 				delete newtile->spawn;
 				newtile->spawn = nullptr;
+			}
+
+			// Zone flags and house membership are properties of the tile, not
+			// items on it, so deepCopy carries them over and deleting every item
+			// used to leave an invisible protection zone / house tile behind.
+			if (ground_selected) {
+				newtile->unsetMapFlags(0xFFFF);
+
+				if (newtile->isHouseTile()) {
+					House* house = map.houses.getHouse(newtile->getHouseID());
+					if (house) {
+						// Drops the position from the house's tile list as well,
+						// otherwise the house keeps claiming a tile that is gone.
+						house->removeTile(newtile);
+					} else {
+						newtile->setHouseID(0);
+					}
+				}
 			}
 
 			if (g_settings.getInteger(Config::USE_AUTOMAGIC)) {
