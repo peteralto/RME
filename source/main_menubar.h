@@ -156,6 +156,10 @@ namespace MenuBar {
 		ABOUT,
 		SEARCH_ON_MAP_DUPLICATE,
 		SEARCH_ON_SELECTION_DUPLICATE,
+		SEARCH_ON_MAP_CREATURE_BLOCKING,
+		SEARCH_ON_SELECTION_CREATURE_BLOCKING,
+		SEARCH_ON_MAP_CONTAINER_NO_ID,
+		SEARCH_ON_SELECTION_CONTAINER_NO_ID,
 		REMOVE_ON_MAP_DUPLICATE_ITEMS,
 		REMOVE_ON_SELECTION_DUPLICATE_ITEMS,		
 
@@ -305,6 +309,10 @@ public:
 	
 	void OnSearchForDuplicateItemsOnMap(wxCommandEvent& event);
 	void OnSearchForDuplicateItemsOnSelection(wxCommandEvent& event);
+	void OnSearchForCreaturesOnBlockingTilesOnMap(wxCommandEvent& event);
+	void OnSearchForCreaturesOnBlockingTilesOnSelection(wxCommandEvent& event);
+	void OnSearchForUnidentifiedContainersOnMap(wxCommandEvent& event);
+	void OnSearchForUnidentifiedContainersOnSelection(wxCommandEvent& event);
 	void OnRemoveForDuplicateItemsOnMap(wxCommandEvent& event);
 	void OnRemoveForDuplicateItemsOnSelection(wxCommandEvent& event);	
 
@@ -331,6 +339,8 @@ protected:
 	void SearchItems(bool unique, bool action, bool container, bool writable, bool onSelection = false);
 	
 	void SearchDuplicatedItems(bool onSelection = false);
+	void SearchCreaturesOnBlockingTiles(bool onSelection = false);
+	void SearchUnidentifiedContainers(bool onSelection = false);
 	void RemoveDuplicatesItems(bool onSelection = false);	
 
 protected:

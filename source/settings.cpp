@@ -230,6 +230,11 @@ void Settings::IO(IOMode mode) {
 	Int(SHOW_TOWNS, 0);
 	Int(ALWAYS_SHOW_ZONES, 1);
 	Int(EXT_HOUSE_SHADER, 1);
+	// Translucent colour overlay for item server ids whose sprite is blank or
+	// invisible. Format: "id:r,g,b[,a]" separated by ';' -- for example
+	//   TILE_ID_COLORS=460:255,0,0;1234:0,128,255,80
+	// Alpha is optional and always clamped so the overlay stays translucent.
+	String(TILE_ID_COLORS, "");
 
 	section("Version");
 	Int(VERSION_ID, 0);

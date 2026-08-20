@@ -250,6 +250,127 @@ MapViewInfo MapDrawer::getViewInfo() const {
 	return info;
 }
 
+// ---------------------------------------------------------------------------
+// Translucent colour overlay for configured item server ids.
+//
+// Meant for items whose sprite is blank or invisible (floors carrying only
+// server-side flags, for instance), which are otherwise impossible to spot on
+// the map. Configured through the TILE_ID_COLORS setting:
+//
+//     TILE_ID_COLORS=460:255,0,0;1234:0,128,255,80
+//
+// where each entry is "serverid:r,g,b" with an optional alpha. The alpha is
+// always clamped to TILE_ID_COLOR_MAX_ALPHA so the overlay never hides the
+// tile underneath it.
+// ---------------------------------------------------------------------------
+struct TileIdColor {
+	uint8_t r, g, b, a;
+};
+
+static const int TILE_ID_COLOR_DEFAULT_ALPHA = 120;
+static const int TILE_ID_COLOR_MAX_ALPHA = 200;
+
+static std::map<uint16_t, TileIdColor> g_tile_id_colors;
+static std::string g_tile_id_colors_source;
+static bool g_tile_id_colors_loaded = false;
+
+static void ParseTileIdColors(const std::string& source) {
+	g_tile_id_colors.clear();
+
+	std::istringstream entries(source);
+	std::string entry;
+	while (std::getline(entries, entry, ';')) {
+		// strip whitespace
+		std::string cleaned;
+		for (char c : entry) {
+			if (!isspace(static_cast<unsigned char>(c))) {
+				cleaned += c;
+			}
+		}
+
+		if (cleaned.empty()) {
+			continue;
+		}
+
+		size_t colon = cleaned.find(':');
+		if (colon == std::string::npos) {
+			continue;
+		}
+
+		long id = strtol(cleaned.substr(0, colon).c_str(), nullptr, 10);
+		if (id <= 0 || id > 0xFFFF) {
+			continue;
+		}
+
+		int channels[4] = { 255, 255, 255, TILE_ID_COLOR_DEFAULT_ALPHA };
+		int count = 0;
+
+		std::istringstream values(cleaned.substr(colon + 1));
+		std::string value;
+		while (count < 4 && std::getline(values, value, ',')) {
+			if (value.empty()) {
+				continue;
+			}
+			int v = (int)strtol(value.c_str(), nullptr, 10);
+			channels[count++] = std::min(255, std::max(0, v));
+		}
+
+		if (count < 3) {
+			continue;
+		}
+
+		TileIdColor color;
+		color.r = (uint8_t)channels[0];
+		color.g = (uint8_t)channels[1];
+		color.b = (uint8_t)channels[2];
+		color.a = (uint8_t)std::min(channels[3], TILE_ID_COLOR_MAX_ALPHA);
+
+		g_tile_id_colors[(uint16_t)id] = color;
+	}
+}
+
+// Re-parses only when the setting actually changed, so this is a single string
+// comparison per frame in the common case.
+static const std::map<uint16_t, TileIdColor>& GetTileIdColors() {
+	const std::string source = g_settings.getString(Config::TILE_ID_COLORS);
+	if (!g_tile_id_colors_loaded || source != g_tile_id_colors_source) {
+		g_tile_id_colors_source = source;
+		g_tile_id_colors_loaded = true;
+		ParseTileIdColors(source);
+	}
+	return g_tile_id_colors;
+}
+
+// Zoom limits for tooltips (zoom is a divisor: 1.0 = 100%, 10.0 = 10%).
+// A tooltip is only built/drawn while zoom is below these values.
+// The original code hardcoded 10.0 for the balloon and 1.0 for the text, which
+// made tooltips vanish as soon as you zoomed out a little. Raise or lower these
+// to taste; the old behaviour is TOOLTIP_ZOOM_LIMIT 10.0 / TOOLTIP_TEXT_ZOOM_LIMIT 1.0.
+static const double TOOLTIP_ZOOM_LIMIT = 1000.0;
+static const double TOOLTIP_TEXT_ZOOM_LIMIT = 1000.0;
+
+// glRasterPos is clipped as a whole: if the position falls outside the view
+// volume the raster position becomes invalid and *nothing* of the string is
+// drawn. That is what made tooltips blink in and out while scrolling near the
+// window edges. Setting the raster position to a point known to be inside and
+// then offsetting it with a null glBitmap keeps it valid, so the text renders
+// (and gets clipped per-pixel) as expected.
+//
+// ortho is glOrtho(0, w*zoom, h*zoom, 0, ...), so one ortho unit is 1/zoom
+// window pixels and the y axis points down, hence the negated dy.
+static void SafeRasterPos(float x, float y, float view_w, float view_h, float zoom) {
+	float anchor_x = std::min(std::max(x, 0.0f), view_w);
+	float anchor_y = std::min(std::max(y, 0.0f), view_h);
+
+	glRasterPos2f(anchor_x, anchor_y);
+
+	if (anchor_x != x || anchor_y != y) {
+		float dx = (x - anchor_x) / zoom;
+		float dy = -(y - anchor_y) / zoom;
+		glBitmap(0, 0, 0, 0, dx, dy, nullptr);
+	}
+}
+
 static bool mapToScreen(const MapDrawer* drawer, int map_x, int map_y, int map_z, int& screen_x, int& screen_y) {
 	if (!drawer) {
 		return false;
@@ -1779,6 +1900,32 @@ void MapDrawer::DrawTile(TileLocation* location) {
 		}
 	}
 
+	// Configured colour overlay (TILE_ID_COLORS). Looked up on the ground first,
+	// then on the items, so it works for invisible floors and for invisible
+	// items stacked on a normal floor.
+	const TileIdColor* id_color = nullptr;
+	if (!only_colors) {
+		const std::map<uint16_t, TileIdColor>& id_colors = GetTileIdColors();
+		if (!id_colors.empty()) {
+			if (tile->ground) {
+				std::map<uint16_t, TileIdColor>::const_iterator found = id_colors.find(tile->ground->getID());
+				if (found != id_colors.end()) {
+					id_color = &found->second;
+				}
+			}
+
+			if (!id_color) {
+				for (ItemVector::const_iterator it = tile->items.begin(); it != tile->items.end(); ++it) {
+					std::map<uint16_t, TileIdColor>::const_iterator found = id_colors.find((*it)->getID());
+					if (found != id_colors.end()) {
+						id_color = &found->second;
+						break;
+					}
+				}
+			}
+		}
+	}
+
 	if (only_colors) {
 		if (as_minimap) {
 			uint8_t color = tile->getMiniMapColor();
@@ -1799,6 +1946,10 @@ void MapDrawer::DrawTile(TileLocation* location) {
 		} else if (options.always_show_zones && (r != 255 || g != 255 || b != 255)) {
 			DrawRawBrush(draw_x, draw_y, &g_items[SPRITE_ZONE], r, g, b, 60);
 		}
+
+		if (id_color) {
+			BlitSquare(draw_x, draw_y, id_color->r, id_color->g, id_color->b, id_color->a);
+		}
 	}
 
 	if (options.show_tooltips && map_z == floor && tile->ground) {
@@ -1807,7 +1958,18 @@ void MapDrawer::DrawTile(TileLocation* location) {
 	// end filters for ground tile
 
 	if (!only_colors) {
-		if (zoom < 10.0 || !options.hide_items_when_zoomed) {
+		const bool draw_items = (zoom < 10.0 || !options.hide_items_when_zoomed);
+
+		// Even when the item sprites themselves are hidden (zoomed out), the
+		// tooltip text still has to be collected, otherwise tooltips would pop
+		// out of existence at the hide_items_when_zoomed threshold.
+		if (!draw_items && options.show_tooltips && map_z == floor) {
+			for (ItemVector::iterator it = tile->items.begin(); it != tile->items.end(); it++) {
+				WriteTooltip(*it, tooltip, tile->isHouseTile());
+			}
+		}
+
+		if (draw_items) {
 			// items on tile
 			for (ItemVector::iterator it = tile->items.begin(); it != tile->items.end(); it++) {
 				// item tooltip
@@ -1872,17 +2034,21 @@ void MapDrawer::DrawTile(TileLocation* location) {
 				}
 			}
 
-			// tooltips
-			if (options.show_tooltips) {
-				if (location->getWaypointCount() > 0) {
-					MakeTooltip(draw_x, draw_y, tooltip.str(), 0, 255, 0);
-				} else {
-					MakeTooltip(draw_x, draw_y, tooltip.str());
-				}
+		}
+
+		// tooltips -- deliberately outside the zoom gate above, so that showing
+		// them is governed by the View > Show tooltips option alone.
+		if (options.show_tooltips && zoom < TOOLTIP_ZOOM_LIMIT) {
+			if (location->getWaypointCount() > 0) {
+				MakeTooltip(draw_x, draw_y, tooltip.str(), 0, 255, 0);
+			} else {
+				MakeTooltip(draw_x, draw_y, tooltip.str());
 			}
-			tooltip.str("");
 		}
 	}
+
+	// Always reset, otherwise the text leaks into the next tile drawn.
+	tooltip.str("");
 }
 
 void MapDrawer::DrawBrushIndicator(int x, int y, Brush* brush, uint8_t r, uint8_t g, uint8_t b) {
@@ -2035,17 +2201,20 @@ void MapDrawer::DrawTooltips() {
 		glEnd();
 
 		// text
-		if (zoom <= 1.0) {
+		if (zoom <= TOOLTIP_TEXT_ZOOM_LIMIT) {
+			const float view_w = screensize_x * zoom;
+			const float view_h = screensize_y * zoom;
+
 			startx += (3.0f * scale);
 			starty += (14.0f * scale);
 			glColor4ub(0, 0, 0, 255);
-			glRasterPos2f(startx, starty);
+			SafeRasterPos(startx, starty, view_w, view_h, zoom);
 			char_count = 0;
 			line_char_count = 0;
 			for (const char* c = text; *c != '\0'; c++) {
 				if (*c == '\n' || (line_char_count >= MapTooltip::MAX_CHARS_PER_LINE && *c == ' ')) {
 					starty += (14.0f * scale);
-					glRasterPos2f(startx, starty);
+					SafeRasterPos(startx, starty, view_w, view_h, zoom);
 					line_char_count = 0;
 				}
 				char_count++;

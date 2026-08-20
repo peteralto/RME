@@ -103,6 +103,9 @@
 		<item name="Find Writeable" action="SEARCH_ON_MAP_WRITEABLE" help="Find all writeable items on map."/>
 		<item name="Find Duplicate Items" action="SEARCH_ON_MAP_DUPLICATE" help="Find all positions where there are duplicate items on the map."/>
 		<separator/>
+		<item name="Find Creatures on Blocking Tiles" action="SEARCH_ON_MAP_CREATURE_BLOCKING" help="Find creatures placed on walls, unpassable items or tiles without ground."/>
+		<item name="Find Containers without AID/UID" action="SEARCH_ON_MAP_CONTAINER_NO_ID" help="Find containers that hold items but have no action ID and no unique ID."/>
+		<separator/>
 		<item name="Find Everything" action="SEARCH_ON_MAP_EVERYTHING" help="Find all unique/action/text/container items."/>
 	</menu>
 	<menu name="Map">
@@ -130,6 +133,9 @@
 			<item name="Find Container" action="SEARCH_ON_SELECTION_CONTAINER" help="Find all containers on selected area."/>
 			<item name="Find Writeable" action="SEARCH_ON_SELECTION_WRITEABLE" help="Find all writeable items on selected area."/>
 			<item name="Find Duplicate Items" action="SEARCH_ON_SELECTION_DUPLICATE" help="Find all positions where there are duplicate items on selected area."/>
+			<separator/>
+			<item name="Find Creatures on Blocking Tiles" action="SEARCH_ON_SELECTION_CREATURE_BLOCKING" help="Find creatures placed on walls, unpassable items or tiles without ground on selected area."/>
+			<item name="Find Containers without AID/UID" action="SEARCH_ON_SELECTION_CONTAINER_NO_ID" help="Find containers that hold items but have no action ID and no unique ID on selected area."/>
 		</menu>
 		<separator/>
 		<menu name="Selection Mode">

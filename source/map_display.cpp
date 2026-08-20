@@ -165,12 +165,12 @@ void MapCanvas::Refresh() {
 
 // Virtual implementation (base assumes parent is MapWindow)
 void MapCanvas::SetZoom(double value) {
-	if (value < 0.125) {
-		value = 0.125;
+	if (value < MAP_MIN_ZOOM) {
+		value = MAP_MIN_ZOOM;
 	}
 
-	if (value > 25.00) {
-		value = 25.0;
+	if (value > MAP_MAX_ZOOM) {
+		value = MAP_MAX_ZOOM;
 	}
 
 	if (zoom != value) {
@@ -1533,13 +1533,13 @@ void MapCanvas::OnWheel(wxMouseEvent& event) {
 		double oldzoom = zoom;
 		zoom += diff;
 
-		if (zoom < 0.125) {
-			diff = 0.125 - oldzoom;
-			zoom = 0.125;
+		if (zoom < MAP_MIN_ZOOM) {
+			diff = MAP_MIN_ZOOM - oldzoom;
+			zoom = MAP_MIN_ZOOM;
 		}
-		if (zoom > 25.00) {
-			diff = 25.00 - oldzoom;
-			zoom = 25.0;
+		if (zoom > MAP_MAX_ZOOM) {
+			diff = MAP_MAX_ZOOM - oldzoom;
+			zoom = MAP_MAX_ZOOM;
 		}
 
 		UpdateZoomStatus();
@@ -1597,9 +1597,9 @@ void MapCanvas::OnKeyDown(wxKeyEvent& event) {
 			double oldzoom = zoom;
 			zoom += diff;
 
-			if (zoom < 0.125) {
-				diff = 0.125 - oldzoom;
-				zoom = 0.125;
+			if (zoom < MAP_MIN_ZOOM) {
+				diff = MAP_MIN_ZOOM - oldzoom;
+				zoom = MAP_MIN_ZOOM;
 			}
 
 			int screensize_x, screensize_y;
@@ -1621,9 +1621,9 @@ void MapCanvas::OnKeyDown(wxKeyEvent& event) {
 			double oldzoom = zoom;
 			zoom += diff;
 
-			if (zoom > 25.00) {
-				diff = 25.00 - oldzoom;
-				zoom = 25.0;
+			if (zoom > MAP_MAX_ZOOM) {
+				diff = MAP_MAX_ZOOM - oldzoom;
+				zoom = MAP_MAX_ZOOM;
 			}
 
 			int screensize_x, screensize_y;

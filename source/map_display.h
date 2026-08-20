@@ -22,6 +22,12 @@
 #include "tile.h"
 #include "creature.h"
 
+// Zoom is a divisor: the displayed percentage is 100 / zoom.
+// MAP_MAX_ZOOM 50.0 => 2% minimum zoom (was 25.0 => 4%).
+// MAP_MIN_ZOOM 0.125 => 800% maximum zoom.
+static const double MAP_MIN_ZOOM = 0.125;
+static const double MAP_MAX_ZOOM = 50.0;
+
 class Item;
 class Creature;
 class MapWindow;

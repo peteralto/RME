@@ -179,6 +179,7 @@ namespace Config {
 		SHOW_TOWNS,
 		ALWAYS_SHOW_ZONES,
 		EXT_HOUSE_SHADER,
+		TILE_ID_COLORS,
 
 		LAST,
 	};

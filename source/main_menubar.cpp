@@ -32,6 +32,8 @@
 
 #include <wx/chartype.h>
 
+#include <functional>
+
 #include "editor.h"
 #include "materials.h"
 #include "live_client.h"
@@ -208,6 +210,10 @@ MainMenuBar::MainMenuBar(MainFrame* frame) :
 
 	MAKE_ACTION(SEARCH_ON_MAP_DUPLICATE, wxITEM_NORMAL, OnSearchForDuplicateItemsOnMap);
 	MAKE_ACTION(SEARCH_ON_SELECTION_DUPLICATE, wxITEM_NORMAL, OnSearchForDuplicateItemsOnSelection);
+	MAKE_ACTION(SEARCH_ON_MAP_CREATURE_BLOCKING, wxITEM_NORMAL, OnSearchForCreaturesOnBlockingTilesOnMap);
+	MAKE_ACTION(SEARCH_ON_SELECTION_CREATURE_BLOCKING, wxITEM_NORMAL, OnSearchForCreaturesOnBlockingTilesOnSelection);
+	MAKE_ACTION(SEARCH_ON_MAP_CONTAINER_NO_ID, wxITEM_NORMAL, OnSearchForUnidentifiedContainersOnMap);
+	MAKE_ACTION(SEARCH_ON_SELECTION_CONTAINER_NO_ID, wxITEM_NORMAL, OnSearchForUnidentifiedContainersOnSelection);
 	MAKE_ACTION(REMOVE_ON_MAP_DUPLICATE_ITEMS, wxITEM_NORMAL, OnRemoveForDuplicateItemsOnMap);
 	MAKE_ACTION(REMOVE_ON_SELECTION_DUPLICATE_ITEMS, wxITEM_NORMAL, OnRemoveForDuplicateItemsOnSelection);
 
@@ -461,6 +467,10 @@ void MainMenuBar::Update() {
 	
 	EnableItem(SEARCH_ON_MAP_DUPLICATE, is_host);
 	EnableItem(SEARCH_ON_SELECTION_DUPLICATE, has_selection && is_host);
+	EnableItem(SEARCH_ON_MAP_CREATURE_BLOCKING, is_host);
+	EnableItem(SEARCH_ON_SELECTION_CREATURE_BLOCKING, has_selection && is_host);
+	EnableItem(SEARCH_ON_MAP_CONTAINER_NO_ID, is_host);
+	EnableItem(SEARCH_ON_SELECTION_CONTAINER_NO_ID, has_selection && is_host);
 	EnableItem(REMOVE_ON_MAP_DUPLICATE_ITEMS, is_local);
 	EnableItem(REMOVE_ON_SELECTION_DUPLICATE_ITEMS, is_local && has_selection);	
 
@@ -2224,6 +2234,175 @@ namespace SearchDuplicatedItems {
 			}
 		}
 	};
+}
+
+void MainMenuBar::OnSearchForCreaturesOnBlockingTilesOnMap(wxCommandEvent& WXUNUSED(event)) {
+	SearchCreaturesOnBlockingTiles(false);
+}
+
+void MainMenuBar::OnSearchForCreaturesOnBlockingTilesOnSelection(wxCommandEvent& WXUNUSED(event)) {
+	SearchCreaturesOnBlockingTiles(true);
+}
+
+void MainMenuBar::OnSearchForUnidentifiedContainersOnMap(wxCommandEvent& WXUNUSED(event)) {
+	SearchUnidentifiedContainers(false);
+}
+
+void MainMenuBar::OnSearchForUnidentifiedContainersOnSelection(wxCommandEvent& WXUNUSED(event)) {
+	SearchUnidentifiedContainers(true);
+}
+
+// Finds creatures standing on a tile the server will not let them walk on:
+// a tile holding an unpassable item (wall, closed door, big rock, ...) or a
+// tile with no ground at all. Tile::isBlocking() already covers both cases,
+// it is kept up to date by Tile::update().
+void MainMenuBar::SearchCreaturesOnBlockingTiles(bool onSelection /* = false*/) {
+	if (!g_gui.IsEditorOpen()) {
+		return;
+	}
+
+	if (onSelection) {
+		g_gui.CreateLoadBar("Searching creatures on selected area...");
+	} else {
+		g_gui.CreateLoadBar("Searching creatures on map...");
+	}
+
+	Map& map = g_gui.GetCurrentMap();
+	std::vector<std::pair<Position, wxString>> found;
+
+	long long done = 0;
+	const long long total = std::max<long long>(1, map.getTileCount());
+	for (MapIterator it = map.begin(); it != map.end(); ++it) {
+		if (++done % 0x8000 == 0) {
+			g_gui.SetLoadDone((unsigned int)(100 * done / total));
+		}
+
+		Tile* tile = (*it)->get();
+		if (!tile || !tile->creature) {
+			continue;
+		}
+
+		if (onSelection && !tile->isSelected()) {
+			continue;
+		}
+
+		if (!tile->isBlocking()) {
+			continue;
+		}
+
+		wxString label;
+		label << wxstr(tile->creature->getName());
+		label << (tile->creature->isNpc() ? " (NPC)" : " (Monster)");
+		if (!tile->ground) {
+			label << " - no ground";
+		} else {
+			label << " - blocking tile";
+		}
+
+		found.push_back(std::make_pair(tile->getPosition(), label));
+	}
+
+	g_gui.DestroyLoadBar();
+
+	wxString msg;
+	msg << found.size() << " creature(s) found on blocking tiles.";
+	g_gui.PopupDialog("Search completed", msg, wxOK);
+
+	SearchResultWindow* result = g_gui.ShowSearchWindow();
+	result->Clear();
+	for (const auto& entry : found) {
+		result->AddPosition(entry.second, entry.first);
+	}
+}
+
+// Finds containers on the map that hold items but carry neither an action id
+// nor an unique id -- loot the server has no way to reference. The scan is
+// recursive: a bag buried inside a properly tagged chest is still reported.
+void MainMenuBar::SearchUnidentifiedContainers(bool onSelection /* = false*/) {
+	if (!g_gui.IsEditorOpen()) {
+		return;
+	}
+
+	if (onSelection) {
+		g_gui.CreateLoadBar("Searching containers on selected area...");
+	} else {
+		g_gui.CreateLoadBar("Searching containers on map...");
+	}
+
+	Map& map = g_gui.GetCurrentMap();
+	std::vector<std::pair<Position, wxString>> found;
+
+	// Walks a container and everything nested inside it. A container is
+	// reported when it holds items but carries neither an action id nor an
+	// unique id; the recursion continues regardless, so a properly tagged chest
+	// containing an untagged bag still reports the bag.
+	std::function<void(Container*, const wxString&, const Position&)> inspect =
+		[&](Container* container, const wxString& path, const Position& position) {
+			const size_t count = container->getItemCount();
+			if (count == 0) {
+				return;
+			}
+
+			if (container->getActionID() == 0 && container->getUniqueID() == 0) {
+				wxString label;
+				label << wxstr(container->getName());
+				label << " (" << count << " item(s), no AID/UID)";
+				if (!path.IsEmpty()) {
+					label << " [in " << path << "]";
+				}
+				found.push_back(std::make_pair(position, label));
+			}
+
+			wxString child_path = path;
+			if (!child_path.IsEmpty()) {
+				child_path << " > ";
+			}
+			child_path << wxstr(container->getName());
+
+			ItemVector& contents = container->getVector();
+			for (Item* child : contents) {
+				Container* nested = dynamic_cast<Container*>(child);
+				if (nested) {
+					inspect(nested, child_path, position);
+				}
+			}
+		};
+
+	long long done = 0;
+	const long long total = std::max<long long>(1, map.getTileCount());
+	for (MapIterator it = map.begin(); it != map.end(); ++it) {
+		if (++done % 0x8000 == 0) {
+			g_gui.SetLoadDone((unsigned int)(100 * done / total));
+		}
+
+		Tile* tile = (*it)->get();
+		if (!tile) {
+			continue;
+		}
+
+		if (onSelection && !tile->isSelected()) {
+			continue;
+		}
+
+		for (Item* item : tile->items) {
+			Container* container = dynamic_cast<Container*>(item);
+			if (container) {
+				inspect(container, "", tile->getPosition());
+			}
+		}
+	}
+
+	g_gui.DestroyLoadBar();
+
+	wxString msg;
+	msg << found.size() << " container(s) found with contents but no AID/UID.";
+	g_gui.PopupDialog("Search completed", msg, wxOK);
+
+	SearchResultWindow* result = g_gui.ShowSearchWindow();
+	result->Clear();
+	for (const auto& entry : found) {
+		result->AddPosition(entry.second, entry.first);
+	}
 }
 
 void MainMenuBar::SearchDuplicatedItems(bool onSelection/* = false*/) {
