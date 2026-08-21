@@ -1020,7 +1020,13 @@ void Editor::moveSelection(Position offset) {
 	std::map<uint32_t, Position> moved_house_exits;
 	for (TileSet::iterator it = selection.begin(); it != selection.end(); ++it) {
 		Tile* tile = (*it);
-		if (!tile->ground || !tile->ground->isSelected()) {
+		// A tile counts as moving when its ground moves, or when it has no
+		// ground at all and everything on it is selected (wall-only tiles).
+		if (tile->ground) {
+			if (!tile->ground->isSelected()) {
+				continue;
+			}
+		} else if (!tile->isSelected()) {
 			continue;
 		}
 
@@ -1097,8 +1103,15 @@ void Editor::moveSelection(Position offset) {
 			new_src_tile->creature = nullptr;
 		}
 
-		// Move house data & tile status if ground is transferred
-		if (tmp_storage_tile->ground) {
+		// Move house data & tile status when the whole tile moves.
+		//
+		// This used to test only for a transferred ground. A house tile that holds
+		// nothing but a wall has no ground item, so its house_id and zone flags
+		// stayed behind while every item on it moved away -- the house kept
+		// claiming the old wall positions. Treat a source tile that ends up
+		// completely empty as moved as well.
+		const bool tile_emptied = !new_src_tile->ground && new_src_tile->items.empty() && !new_src_tile->creature && !new_src_tile->spawn;
+		if (tmp_storage_tile->ground || tile_emptied) {
 			tmp_storage_tile->house_id = new_src_tile->house_id;
 			new_src_tile->house_id = 0;
 			tmp_storage_tile->setMapFlags(new_src_tile->getMapFlags());
@@ -1106,6 +1119,10 @@ void Editor::moveSelection(Position offset) {
 			// the zone flags (PZ / no-pvp / no-logout / pvp / refresh) stayed behind on
 			// the source tile. Clear them explicitly instead.
 			new_src_tile->unsetMapFlags(0xFFFF);
+		}
+
+		// Borders are only regenerated when a ground actually changed hands.
+		if (tmp_storage_tile->ground) {
 			doborders = true;
 		}
 
@@ -1390,10 +1407,6 @@ void Editor::destroySelection() {
 
 			Tile* tile = *it;
 
-			// Whether the tile itself is being removed, as opposed to just some
-			// items standing on it. Same criterion the move/cut paths use.
-			const bool ground_selected = tile->ground && tile->ground->isSelected();
-
 			Tile* newtile = tile->deepCopy(map);
 
 			ItemVector tile_selection = newtile->popSelectedItems();
@@ -1416,7 +1429,10 @@ void Editor::destroySelection() {
 			// Zone flags and house membership are properties of the tile, not
 			// items on it, so deepCopy carries them over and deleting every item
 			// used to leave an invisible protection zone / house tile behind.
-			if (ground_selected) {
+			// The tile itself is gone when its ground was deleted, or when nothing
+			// at all is left on it (a house tile holding only a wall has no ground).
+			const bool tile_emptied = !newtile->ground && newtile->items.empty() && !newtile->creature && !newtile->spawn;
+			if (tile_emptied) {
 				newtile->unsetMapFlags(0xFFFF);
 
 				if (newtile->isHouseTile()) {

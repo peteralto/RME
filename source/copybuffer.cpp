@@ -72,7 +72,10 @@ void CopyBuffer::copy(Editor& editor, int floor) {
 		TileLocation* newlocation = tiles->createTileL(tile->getPosition());
 		Tile* copied_tile = tiles->allocator(newlocation);
 
-		if (tile->ground && tile->ground->isSelected()) {
+		// Matches cut(): a wall-only house tile has no ground, but it is still
+		// wholly part of the selection and must carry its house id and flags.
+		const bool tile_fully_copied = (tile->ground ? tile->ground->isSelected() : tile->isSelected());
+		if (tile_fully_copied) {
 			copied_tile->house_id = tile->house_id;
 			copied_tile->setMapFlags(tile->getMapFlags());
 		}
@@ -93,7 +96,7 @@ void CopyBuffer::copy(Editor& editor, int floor) {
 
 		// If this tile is the exit of one or more houses, remember it so the
 		// exit can follow the tiles when they are pasted somewhere else.
-		if (tile->ground && tile->ground->isSelected()) {
+		if (tile_fully_copied) {
 			const HouseExitList* exits = tile->getHouseExits();
 			if (exits) {
 				for (HouseExitList::const_iterator eit = exits->begin(); eit != exits->end(); ++eit) {
@@ -134,6 +137,13 @@ void CopyBuffer::cut(Editor& editor, int floor) {
 	BatchAction* batch = editor.actionQueue->createBatch(ACTION_CUT_TILES);
 	Action* action = editor.actionQueue->createAction(batch);
 
+	// Editor::moveSelection guards its borderize/wallize pass with this
+	// threshold, but cut() never did: on a city sized selection it would run
+	// borderize() and wallize() over every cut tile and its eight neighbours.
+	// That is both very slow and destructive -- wallize() rewrites the wall
+	// pieces of the tiles left around the hole.
+	const bool do_automagic = g_settings.getInteger(Config::USE_AUTOMAGIC) && editor.selection.size() < size_t(g_settings.getInteger(Config::BORDERIZE_DRAG_THRESHOLD));
+
 	PositionList tilestoborder;
 
 	for (TileSet::iterator it = editor.selection.begin(); it != editor.selection.end(); ++it) {
@@ -142,16 +152,6 @@ void CopyBuffer::cut(Editor& editor, int floor) {
 		Tile* tile = *it;
 		Tile* newtile = tile->deepCopy(editor.map);
 		Tile* copied_tile = tiles->allocator(tile->getLocation());
-
-		if (tile->ground && tile->ground->isSelected()) {
-			copied_tile->house_id = newtile->house_id;
-			newtile->house_id = 0;
-			copied_tile->setMapFlags(tile->getMapFlags());
-			// setMapFlags() ORs the value in, so passing TILESTATE_NONE was a no-op and
-			// the zone flags (PZ / no-pvp / no-logout / pvp / refresh) stayed behind on
-			// the tile that was cut out. Clear them explicitly instead.
-			newtile->unsetMapFlags(0xFFFF);
-		}
 
 		ItemVector tile_selection = newtile->popSelectedItems();
 		for (ItemVector::iterator iit = tile_selection.begin(); iit != tile_selection.end(); ++iit) {
@@ -170,8 +170,26 @@ void CopyBuffer::cut(Editor& editor, int floor) {
 			newtile->spawn = nullptr;
 		}
 
+		// House membership and zone flags belong to the tile itself. Transferring
+		// them only when a ground moved left house tiles that hold nothing but a
+		// wall (no ground item) marked as house at the original position, so the
+		// house kept claiming the old wall squares. A source tile that ends up
+		// completely empty has moved just as much as one that had a ground.
+		const bool tile_emptied = !newtile->ground && newtile->items.empty() && !newtile->creature && !newtile->spawn;
+		const bool tile_fully_cut = (copied_tile->ground != nullptr) || tile_emptied;
+
+		if (tile_fully_cut) {
+			copied_tile->house_id = newtile->house_id;
+			newtile->house_id = 0;
+			copied_tile->setMapFlags(tile->getMapFlags());
+			// setMapFlags() ORs the value in, so passing TILESTATE_NONE was a no-op and
+			// the zone flags (PZ / no-pvp / no-logout / pvp / refresh) stayed behind on
+			// the tile that was cut out. Clear them explicitly instead.
+			newtile->unsetMapFlags(0xFFFF);
+		}
+
 		// Same as in copy(): remember any house exit standing on this tile.
-		if (tile->ground && tile->ground->isSelected()) {
+		if (tile_fully_cut) {
 			const HouseExitList* exits = tile->getHouseExits();
 			if (exits) {
 				for (HouseExitList::const_iterator eit = exits->begin(); eit != exits->end(); ++eit) {
@@ -190,7 +208,7 @@ void CopyBuffer::cut(Editor& editor, int floor) {
 			copyPos.y = copied_tile->getY();
 		}
 
-		if (g_settings.getInteger(Config::USE_AUTOMAGIC)) {
+		if (do_automagic) {
 			for (int y = -1; y <= 1; y++) {
 				for (int x = -1; x <= 1; x++) {
 					tilestoborder.push_back(Position(tile->getX() + x, tile->getY() + y, tile->getZ()));
@@ -206,7 +224,7 @@ void CopyBuffer::cut(Editor& editor, int floor) {
 	tilestoborder.sort();
 	tilestoborder.unique();
 
-	if (g_settings.getInteger(Config::USE_AUTOMAGIC)) {
+	if (do_automagic) {
 		action = editor.actionQueue->createAction(batch);
 		for (PositionList::iterator it = tilestoborder.begin(); it != tilestoborder.end(); ++it) {
 			TileLocation* location = editor.map.createTileL(*it);
@@ -358,7 +376,10 @@ void CopyBuffer::paste(Editor& editor, const Position& toPosition) {
 
 	batchAction->addAndCommitAction(action);
 
-	if (g_settings.getInteger(Config::USE_AUTOMAGIC) && g_settings.getInteger(Config::BORDERIZE_PASTE)) {
+	// BORDERIZE_PASTE_THRESHOLD existed but was never consulted here, so pasting
+	// a whole city ran borderize()/wallize() over every pasted tile and its
+	// neighbours -- slow, and it rewrites wall pieces that were pasted intact.
+	if (g_settings.getInteger(Config::USE_AUTOMAGIC) && g_settings.getInteger(Config::BORDERIZE_PASTE) && tiles->size() < size_t(g_settings.getInteger(Config::BORDERIZE_PASTE_THRESHOLD))) {
 		action = editor.actionQueue->createAction(batchAction);
 		TileList borderize_tiles;
 		Map& map = editor.map;
