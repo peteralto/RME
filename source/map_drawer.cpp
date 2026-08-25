@@ -375,7 +375,7 @@ static const std::map<uint16_t, TileIdColor>& GetTileIdColors() {
 // Creature/NPC name labels are drawn down to this zoom. Their text uses the
 // same unscalable bitmap font as the tooltips, so the label background is sized
 // in window pixels and keeps a constant on screen size at every zoom.
-static const double CREATURE_NAME_MIN_ZOOM_PERCENT = 40.0;
+static const double CREATURE_NAME_MIN_ZOOM_PERCENT = 25.0;
 static const double CREATURE_NAME_ZOOM_LIMIT = 100.0 / CREATURE_NAME_MIN_ZOOM_PERCENT;
 
 // Monsters get a red plate, NPCs a lime one; both with black text.
@@ -2202,11 +2202,11 @@ void MapDrawer::DrawCreatureNames() {
 
 		float text_width = 0.0f;
 		for (const char* c = text; *c != '\0'; ++c) {
-			text_width += glutBitmapWidth(GLUT_BITMAP_HELVETICA_10, *c);
+			text_width += glutBitmapWidth(GLUT_BITMAP_HELVETICA_12, *c);
 		}
 
 		const float width = (text_width + 6.0f) * scale;
-		const float height = 13.0f * scale;
+		const float height = 15.0f * scale;
 
 		// Centred over the tile, sitting just above the creature sprite.
 		const float center = label.x + (TileSize / 2.0f);
@@ -2235,10 +2235,10 @@ void MapDrawer::DrawCreatureNames() {
 		glEnd();
 
 		glColor4ub(0, 0, 0, 255);
-		SafeRasterPos(startx + (3.0f * scale), starty + (10.0f * scale), view_w, view_h, zoom);
+		SafeRasterPos(startx + (3.0f * scale), starty + (12.0f * scale), view_w, view_h, zoom);
 		for (const char* c = text; *c != '\0'; ++c) {
 			if (!iscntrl((unsigned char)*c)) {
-				glutBitmapCharacter(GLUT_BITMAP_HELVETICA_10, *c);
+				glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, *c);
 			}
 		}
 	}
