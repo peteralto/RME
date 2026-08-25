@@ -45,6 +45,18 @@ struct MapTooltip {
 	bool ellipsis;
 };
 
+// A creature or NPC name drawn as a flat label over the map. Unlike MapTooltip
+// these are always drawn with their text, so the label is sized in window
+// pixels to match glutBitmapCharacter, which cannot be scaled.
+struct MapCreatureName {
+	MapCreatureName(int x, int y, const std::string& text, bool npc) :
+		x(x), y(y), text(text), npc(npc) { }
+
+	int x, y;
+	std::string text;
+	bool npc;
+};
+
 // Storage during drawing, for option caching
 struct DrawingOptions {
 	DrawingOptions();
@@ -66,6 +78,7 @@ struct DrawingOptions {
 	int show_grid;
 	bool show_all_floors;
 	bool show_creatures;
+	bool show_creature_names;
 	bool show_spawns;
 	bool show_houses;
 	bool show_shade;
@@ -112,6 +125,7 @@ class MapDrawer {
 
 protected:
 	std::vector<MapTooltip*> tooltips;
+	std::vector<MapCreatureName> creature_names;
 	std::ostringstream tooltip;
 
 public:
@@ -136,6 +150,7 @@ public:
 	void DrawIngameBox();
 	void DrawGrid();
 	void DrawTooltips();
+	void DrawCreatureNames();
 	void DrawLight();
 
 	void TakeScreenshot(uint8_t* screenshot_buffer);

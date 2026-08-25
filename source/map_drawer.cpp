@@ -63,6 +63,7 @@ void DrawingOptions::SetDefault() {
 	show_grid = 0;
 	show_all_floors = true;
 	show_creatures = true;
+	show_creature_names = false;
 	show_spawns = true;
 	show_houses = true;
 	show_shade = true;
@@ -95,6 +96,7 @@ void DrawingOptions::SetIngame() {
 	show_grid = 0;
 	show_all_floors = true;
 	show_creatures = true;
+	show_creature_names = false;
 	show_spawns = false;
 	show_houses = false;
 	show_shade = false;
@@ -199,6 +201,7 @@ void MapDrawer::Release() {
 		delete *it;
 	}
 	tooltips.clear();
+	creature_names.clear();
 
 	if (light_drawer) {
 		light_drawer->clear();
@@ -244,6 +247,9 @@ void MapDrawer::Draw() {
 	}
 	if (options.show_tooltips || overlayHasTooltips) {
 		DrawTooltips();
+	}
+	if (options.show_creature_names) {
+		DrawCreatureNames();
 	}
 }
 
@@ -366,6 +372,16 @@ static const std::map<uint16_t, TileIdColor>& GetTileIdColors() {
 //
 // TOOLTIP_TEXT_MIN_ZOOM_PERCENT must not go above 100 or the text will start
 // overflowing its own balloon.
+// Creature/NPC name labels are drawn down to this zoom. Their text uses the
+// same unscalable bitmap font as the tooltips, so the label background is sized
+// in window pixels and keeps a constant on screen size at every zoom.
+static const double CREATURE_NAME_MIN_ZOOM_PERCENT = 40.0;
+static const double CREATURE_NAME_ZOOM_LIMIT = 100.0 / CREATURE_NAME_MIN_ZOOM_PERCENT;
+
+// Monsters get a red plate, NPCs a lime one; both with black text.
+static const uint8_t CREATURE_NAME_MONSTER_RGB[3] = { 220, 40, 40 };
+static const uint8_t CREATURE_NAME_NPC_RGB[3] = { 150, 235, 60 };
+
 static const double TOOLTIP_MIN_ZOOM_PERCENT = 10.0;
 static const double TOOLTIP_TEXT_MIN_ZOOM_PERCENT = 100.0;
 static const double TOOLTIP_ZOOM_LIMIT = 100.0 / TOOLTIP_MIN_ZOOM_PERCENT;
@@ -2035,6 +2051,13 @@ void MapDrawer::DrawTile(TileLocation* location) {
 			// monster/npc on tile
 			if (tile->creature && options.show_creatures) {
 				BlitCreature(draw_x, draw_y, tile->creature);
+
+				if (options.show_creature_names && map_z == floor && zoom <= CREATURE_NAME_ZOOM_LIMIT) {
+					const std::string creature_name = tile->creature->getName();
+					if (!creature_name.empty()) {
+						creature_names.push_back(MapCreatureName(draw_x, draw_y, creature_name, tile->creature->isNpc()));
+					}
+				}
 			}
 		}
 
@@ -2154,6 +2177,72 @@ void MapDrawer::DrawHookIndicator(int x, int y, const ItemType& type) {
 		glVertex2f(x, y + 10);
 	}
 	glEnd();
+	glEnable(GL_TEXTURE_2D);
+}
+
+void MapDrawer::DrawCreatureNames() {
+	if (creature_names.empty()) {
+		return;
+	}
+
+	// Same reason as DrawTooltips: earlier passes leave texturing enabled, which
+	// would modulate the flat plate with whatever sprite is bound.
+	glDisable(GL_TEXTURE_2D);
+
+	const float view_w = screensize_x * zoom;
+	const float view_h = screensize_y * zoom;
+
+	// One ortho unit per screen pixel, so the plate matches the fixed size of
+	// the bitmap font at any zoom.
+	const float scale = zoom;
+
+	for (std::vector<MapCreatureName>::const_iterator it = creature_names.begin(); it != creature_names.end(); ++it) {
+		const MapCreatureName& label = (*it);
+		const char* text = label.text.c_str();
+
+		float text_width = 0.0f;
+		for (const char* c = text; *c != '\0'; ++c) {
+			text_width += glutBitmapWidth(GLUT_BITMAP_HELVETICA_10, *c);
+		}
+
+		const float width = (text_width + 6.0f) * scale;
+		const float height = 13.0f * scale;
+
+		// Centred over the tile, sitting just above the creature sprite.
+		const float center = label.x + (TileSize / 2.0f);
+		const float startx = center - (width / 2.0f);
+		const float endx = startx + width;
+		const float starty = label.y - height - (2.0f * scale);
+		const float endy = starty + height;
+
+		const uint8_t* rgb = label.npc ? CREATURE_NAME_NPC_RGB : CREATURE_NAME_MONSTER_RGB;
+
+		glColor4ub(rgb[0], rgb[1], rgb[2], 255);
+		glBegin(GL_QUADS);
+		glVertex2f(startx, starty);
+		glVertex2f(endx, starty);
+		glVertex2f(endx, endy);
+		glVertex2f(startx, endy);
+		glEnd();
+
+		// Thin darker outline so the plate reads against a busy floor.
+		glColor4ub(0, 0, 0, 160);
+		glBegin(GL_LINE_LOOP);
+		glVertex2f(startx, starty);
+		glVertex2f(endx, starty);
+		glVertex2f(endx, endy);
+		glVertex2f(startx, endy);
+		glEnd();
+
+		glColor4ub(0, 0, 0, 255);
+		SafeRasterPos(startx + (3.0f * scale), starty + (10.0f * scale), view_w, view_h, zoom);
+		for (const char* c = text; *c != '\0'; ++c) {
+			if (!iscntrl((unsigned char)*c)) {
+				glutBitmapCharacter(GLUT_BITMAP_HELVETICA_10, *c);
+			}
+		}
+	}
+
 	glEnable(GL_TEXTURE_2D);
 }
 
