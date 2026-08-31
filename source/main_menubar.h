@@ -60,6 +60,7 @@ namespace MenuBar {
 		SELECT_MODE_CURRENT,
 		SELECT_MODE_LOWER,
 		SELECT_MODE_VISIBLE,
+		SELECT_MODE_LASSO,        // <-- novo		
 		AUTOMAGIC,
 		BORDERIZE_SELECTION,
 		BORDERIZE_MAP,
@@ -243,6 +244,7 @@ public:
 	void OnClearHouseTiles(wxCommandEvent& event);
 	void OnClearModifiedState(wxCommandEvent& event);
 	void OnToggleAutomagic(wxCommandEvent& event);
+	void OnToggleLassoSelection(wxCommandEvent& event);   // <-- novo	
 	void OnSelectionTypeChange(wxCommandEvent& event);
 	void OnCut(wxCommandEvent& event);
 	void OnCopy(wxCommandEvent& event);

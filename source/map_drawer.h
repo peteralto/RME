@@ -145,6 +145,7 @@ public:
 	void DrawDraggingShadow();
 	void DrawHigherFloors();
 	void DrawSelectionBox();
+	void DrawLassoOutline();   // <-- novo
 	void DrawLiveCursors();
 	void DrawBrush();
 	void DrawIngameBox();

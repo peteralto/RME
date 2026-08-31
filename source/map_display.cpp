@@ -117,6 +117,7 @@ MapCanvas::MapCanvas(wxWindow* parent, Editor& editor, int* attriblist) :
 	cursor_y(-1),
 	dragging(false),
 	boundbox_selection(false),
+	lasso_selection(false),        // <-- novo
 	screendragging(false),
 	drawing(false),
 	dragging_draw(false),
@@ -492,18 +493,22 @@ void MapCanvas::OnMouseMove(wxMouseEvent& event) {
 			g_gui.SetStatusText(ss);
 
 			Refresh();
-		} else if (boundbox_selection) {
+		} else if (lasso_selection) {
+			// Só grava quando o cursor troca de tile, senão o vetor explode
+			if (lasso_points.empty()
+				|| lasso_points.back().x != mouse_map_x
+				|| lasso_points.back().y != mouse_map_y) {
+				lasso_points.push_back(Position(mouse_map_x, mouse_map_y, floor));
+			}
+
 			if (map_update) {
 				wxString ss;
-
-				int move_x = std::abs(last_click_map_x - mouse_map_x);
-				int move_y = std::abs(last_click_map_y - mouse_map_y);
-				ss << "Selection " << move_x + 1 << ":" << move_y + 1;
+				ss << "Lasso: " << (int)lasso_points.size() << " points";
 				g_gui.SetStatusText(ss);
 			}
 
 			Refresh();
-		}
+		} else if (boundbox_selection) {
 	} else { // Drawing mode
 		Brush* brush = g_gui.GetCurrentBrush();
 		if (map_update && drawing && brush) {
@@ -722,11 +727,18 @@ void MapCanvas::OnMouseActionClick(wxMouseEvent& event) {
 			drag_start_x = mouse_map_x;
 			drag_start_y = mouse_map_y;
 			drag_start_z = floor;
-		} else {
+				} else {
 			do {
 				boundbox_selection = false;
+				lasso_selection = false;
 				if (event.ShiftDown()) {
-					boundbox_selection = true;
+					if (g_settings.getBoolean(Config::LASSO_SELECTION)) {
+						lasso_selection = true;
+						lasso_points.clear();
+						lasso_points.push_back(Position(mouse_map_x, mouse_map_y, floor));
+					} else {
+						boundbox_selection = true;
+					}
 
 					if (!event.ControlDown()) {
 						editor.selection.start(); // Start selection session
@@ -980,7 +992,9 @@ void MapCanvas::OnMouseActionRelease(wxMouseEvent& event) {
 		if (dragging && (move_x != 0 || move_y != 0 || move_z != 0)) {
 			editor.moveSelection(Position(move_x, move_y, move_z));
 		} else {
-			if (boundbox_selection) {
+			if (lasso_selection) {
+				finishLassoSelection();
+			} else if (boundbox_selection) {
 				if (mouse_map_x == last_click_map_x && mouse_map_y == last_click_map_y && event.ControlDown()) {
 					// Mouse hasn't moved, do control+shift thingy!
 					Tile* tile = editor.map.getTile(mouse_map_x, mouse_map_y, floor);
@@ -1140,6 +1154,7 @@ void MapCanvas::OnMouseActionRelease(wxMouseEvent& event) {
 		editor.actionQueue->resetTimer();
 		dragging = false;
 		boundbox_selection = false;
+		lasso_selection = false;      // <-- novo		
 	} else if (g_gui.GetCurrentBrush()) { // Drawing mode
 		Brush* brush = g_gui.GetCurrentBrush();
 		if (dragging_draw) {
@@ -1260,6 +1275,91 @@ void MapCanvas::OnMouseActionRelease(wxMouseEvent& event) {
 	}
 	g_gui.RefreshView();
 	g_gui.UpdateMinimap();
+}
+
+// Ray casting: o ponto testado é o CENTRO do tile (x+0.5, y+0.5), não o canto,
+// senão a fileira de borda do traço fica de fora da seleção.
+bool MapCanvas::lassoContains(int map_x, int map_y) const {
+	const size_t n = lasso_points.size();
+	if (n < 3) {
+		return false;
+	}
+
+	const double px = static_cast<double>(map_x) + 0.5;
+	const double py = static_cast<double>(map_y) + 0.5;
+
+	bool inside = false;
+	for (size_t i = 0, j = n - 1; i < n; j = i++) {
+		const double xi = static_cast<double>(lasso_points[i].x);
+		const double yi = static_cast<double>(lasso_points[i].y);
+		const double xj = static_cast<double>(lasso_points[j].x);
+		const double yj = static_cast<double>(lasso_points[j].y);
+
+		if (((yi > py) != (yj > py))
+			&& (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+			inside = !inside;
+		}
+	}
+	return inside;
+}
+
+void MapCanvas::finishLassoSelection() {
+	if (lasso_points.size() < 3) {
+		lasso_points.clear();
+		return;
+	}
+
+	int min_x = lasso_points[0].x, max_x = lasso_points[0].x;
+	int min_y = lasso_points[0].y, max_y = lasso_points[0].y;
+	for (const Position& p : lasso_points) {
+		min_x = std::min(min_x, p.x);
+		max_x = std::max(max_x, p.x);
+		min_y = std::min(min_y, p.y);
+		max_y = std::max(max_y, p.y);
+	}
+
+	// Mesma semântica de andares do boundbox (ver OnMouseActionRelease)
+	int start_z = floor, end_z = floor;
+	switch (g_settings.getInteger(Config::SELECTION_TYPE)) {
+		case SELECT_ALL_FLOORS: {
+			start_z = MAP_MAX_LAYER;
+			end_z = floor;
+			break;
+		}
+		case SELECT_VISIBLE_FLOORS: {
+			start_z = (floor <= GROUND_LAYER) ? GROUND_LAYER : std::min(MAP_MAX_LAYER, floor + 2);
+			end_z = floor;
+			break;
+		}
+		default: {
+			start_z = end_z = floor;
+			break;
+		}
+	}
+
+	editor.selection.start();
+	for (int z = start_z; z >= end_z; --z) {
+		// Compensação diagonal, igual ao boundbox
+		int shift = 0;
+		if (g_settings.getInteger(Config::COMPENSATED_SELECT) && z < GROUND_LAYER) {
+			shift = GROUND_LAYER - z;
+		}
+		for (int y = min_y; y <= max_y; ++y) {
+			for (int x = min_x; x <= max_x; ++x) {
+				if (!lassoContains(x, y)) {
+					continue;
+				}
+				Tile* tile = editor.map.getTile(x - shift, y - shift, z);
+				if (tile) {
+					editor.selection.add(tile);
+				}
+			}
+		}
+	}
+	editor.selection.finish();
+	editor.selection.updateSelectionCount();
+
+	lasso_points.clear();
 }
 
 void MapCanvas::OnMouseCameraClick(wxMouseEvent& event) {

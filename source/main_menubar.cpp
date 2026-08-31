@@ -94,6 +94,7 @@ MainMenuBar::MainMenuBar(MainFrame* frame) :
 	MAKE_ACTION(SELECT_MODE_LOWER, wxITEM_RADIO, OnSelectionTypeChange);
 	MAKE_ACTION(SELECT_MODE_CURRENT, wxITEM_RADIO, OnSelectionTypeChange);
 	MAKE_ACTION(SELECT_MODE_VISIBLE, wxITEM_RADIO, OnSelectionTypeChange);
+	MAKE_ACTION(SELECT_MODE_LASSO, wxITEM_CHECK, OnToggleLassoSelection);	
 
 	MAKE_ACTION(AUTOMAGIC, wxITEM_CHECK, OnToggleAutomagic);
 	MAKE_ACTION(BORDERIZE_SELECTION, wxITEM_NORMAL, OnBorderizeSelection);
@@ -489,6 +490,7 @@ void MainMenuBar::LoadValues() {
 	CheckItem(VIEW_TOOLBARS_STANDARD, g_settings.getBoolean(Config::SHOW_TOOLBAR_STANDARD));
 
 	CheckItem(SELECT_MODE_COMPENSATE, g_settings.getBoolean(Config::COMPENSATED_SELECT));
+	CheckItem(SELECT_MODE_LASSO, g_settings.getBoolean(Config::LASSO_SELECTION));	
 
 	if (IsItemChecked(MenuBar::SELECT_MODE_CURRENT)) {
 		g_settings.setInteger(Config::SELECTION_TYPE, SELECT_CURRENT_FLOOR);
@@ -1251,6 +1253,16 @@ void MainMenuBar::OnToggleAutomagic(wxCommandEvent& WXUNUSED(event)) {
 		g_gui.SetStatusText("Automagic enabled.");
 	} else {
 		g_gui.SetStatusText("Automagic disabled.");
+	}
+}
+
+void MainMenuBar::OnToggleLassoSelection(wxCommandEvent& WXUNUSED(event)) {
+	const bool enabled = IsItemChecked(MenuBar::SELECT_MODE_LASSO);
+	g_settings.setInteger(Config::LASSO_SELECTION, enabled ? 1 : 0);
+	if (enabled) {
+		g_gui.SetStatusText("Lasso selection enabled (Shift + drag).");
+	} else {
+		g_gui.SetStatusText("Lasso selection disabled.");
 	}
 }
 

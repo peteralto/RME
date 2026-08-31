@@ -546,6 +546,22 @@ namespace LuaAPI {
 		app["transaction"] = transaction;
 		app["setClipboard"] = setClipboard;
 		app["getDataDirectory"] = getDataDirectory;
+		app["isLassoEnabled"] = []() -> bool {
+			return g_settings.getBoolean(Config::LASSO_SELECTION);
+		};		
+		app["writeFile"] = [](const std::string& path, const std::string& content) -> bool {
+			std::filesystem::path root(GUI::GetDataDirectory().ToStdString());
+			auto canonRoot = std::filesystem::weakly_canonical(root);
+			auto canon = std::filesystem::weakly_canonical(std::filesystem::path(path));
+			// restringe à árvore do data dir para não virar escrita arbitrária
+			if (canon.string().rfind(canonRoot.string(), 0) != 0) {
+				return false;
+			}
+			std::ofstream f(canon, std::ios::trunc);
+			if (!f.is_open()) return false;
+			f << content;
+			return true;
+		};		
 		app["addContextMenu"] = [](const std::string& label, sol::function callback) {
 			g_luaScripts.registerContextMenuItem(label, callback);
 		};

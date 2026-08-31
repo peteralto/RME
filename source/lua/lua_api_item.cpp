@@ -19,6 +19,7 @@
 #include "lua_api_item.h"
 #include "../item.h"
 #include "../items.h"
+#include "../brush.h"
 
 #include <algorithm>
 #include <cctype>
@@ -118,6 +119,12 @@ namespace LuaAPI {
 			info["isTable"] = it.isTable;
 			info["isCarpet"] = it.isCarpet;
 			info["hasElevation"] = it.hasElevation;
+			info["brushName"]        = it.brush ? it.brush->getName() : "";
+			info["doodadBrushName"]  = it.doodad_brush ? it.doodad_brush->getName() : "";
+			info["isOptionalBorder"] = it.isOptionalBorder;
+			info["groundEquivalent"] = it.ground_equivalent;
+			info["hasRaw"]           = it.has_raw;
+			info["alwaysOnBottom"]   = it.alwaysOnBottom;	
 			return info;
 		};
 

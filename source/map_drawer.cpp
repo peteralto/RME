@@ -226,6 +226,9 @@ void MapDrawer::Draw() {
 	if (options.dragging) {
 		DrawSelectionBox();
 	}
+	if (canvas->lasso_selection) {   // <-- novo
+		DrawLassoOutline();
+	}	
 	DrawLiveCursors();
 	DrawBrush();
 	if (options.show_grid) {
@@ -1045,6 +1048,53 @@ void MapDrawer::DrawSelectionBox() {
 	}
 	glEnd();
 	glDisable(GL_LINE_STIPPLE);
+}
+
+void MapDrawer::DrawLassoOutline() {
+	if (options.ingame) {
+		return;
+	}
+	const std::vector<Position>& pts = canvas->lasso_points;
+	if (pts.size() < 2) {
+		return;
+	}
+
+	// Mesma conversão mapa->tela usada em BlitItem (map_drawer.cpp:1890)
+	auto toScreen = [&](const Position& p, float& out_x, float& out_y) {
+		int offset;
+		if (p.z <= GROUND_LAYER) {
+			offset = (GROUND_LAYER - p.z) * TileSize;
+		} else {
+			offset = TileSize * (floor - p.z);
+		}
+		// +TileSize/2 põe o vértice no centro do tile
+		out_x = (float)(((p.x * TileSize) - view_scroll_x) - offset) + TileSize / 2.0f;
+		out_y = (float)(((p.y * TileSize) - view_scroll_y) - offset) + TileSize / 2.0f;
+	};
+
+	glDisable(GL_TEXTURE_2D);
+	glEnable(GL_LINE_STIPPLE);
+	glLineStipple(1, 0xf0);
+	glLineWidth(2.0);
+	glColor4f(1.0f, 0.86f, 0.23f, 1.0f);   // amarelo, para distinguir do boundbox branco
+
+	glBegin(GL_LINE_STRIP);
+	for (const Position& p : pts) {
+		float sx, sy;
+		toScreen(p, sx, sy);
+		glVertex2f(sx, sy);
+	}
+	// Fecha o polígono visualmente ligando o último ponto ao primeiro
+	{
+		float sx, sy;
+		toScreen(pts.front(), sx, sy);
+		glVertex2f(sx, sy);
+	}
+	glEnd();
+
+	glDisable(GL_LINE_STIPPLE);
+	glLineWidth(1.0);
+	glEnable(GL_TEXTURE_2D);
 }
 
 void MapDrawer::DrawLiveCursors() {

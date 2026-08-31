@@ -149,6 +149,8 @@ public:
 protected:
 	void getTilesToDraw(int mouse_map_x, int mouse_map_y, int floor, PositionVector* tilestodraw, PositionVector* tilestoborder, bool fill = false);
 	bool floodFill(Map* map, const Position& center, int x, int y, GroundBrush* brush, PositionVector* positions);
+	bool lassoContains(int map_x, int map_y) const;   // <-- novo
+	void finishLassoSelection();                      // <-- novo
 
 protected:
 	enum {
@@ -174,6 +176,8 @@ protected:
 
 	bool dragging;
 	bool boundbox_selection;
+	bool lasso_selection;                    // <-- novo
+	std::vector<Position> lasso_points;      // <-- novo (coordenadas de mapa)
 	bool screendragging;
 	bool isPasting() const;
 	bool drawing;
