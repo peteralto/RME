@@ -35,7 +35,7 @@
 #include <wx/clrpicker.h>
 #include <wx/filepicker.h>
 #include <wx/statbmp.h>
-
+#include <wx/scrolwin.h>
 #include "lua_api_image.h"
 
 #include <string>
@@ -150,7 +150,7 @@ private:
 	wxBoxSizer* currentRowSizer = nullptr;
 	wxNotebook* currentNotebook = nullptr;
 	wxNotebook* activeNotebook = nullptr;
-	wxPanel* currentTabPanel = nullptr;
+	wxScrolledWindow* currentTabPanel;   // <-- era wxPanel
 	wxBoxSizer* currentTabSizer = nullptr;
 	int hotkeySuspendCount = 0;
 	bool hotkeysDisabledByDialog = false;

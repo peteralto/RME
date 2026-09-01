@@ -1770,10 +1770,14 @@ LuaDialog* LuaDialog::tab(sol::table options) {
 		});
 	}
 
-	// Create new tab panel
-	currentTabPanel = new wxPanel(currentNotebook);
+	// Create new tab panel (com rolagem vertical)
+	currentTabPanel = new wxScrolledWindow(currentNotebook, wxID_ANY,
+		wxDefaultPosition, wxDefaultSize, wxVSCROLL | wxTAB_TRAVERSAL);
 	currentTabSizer = new wxBoxSizer(wxVERTICAL);
 	currentTabPanel->SetSizer(currentTabSizer);
+
+	// 10 px por "linha" de rolagem; sem isto a roda do mouse anda rapido demais
+	currentTabPanel->SetScrollRate(0, 10);
 	int pageIndex = -1;
 	if (insertIndex > 0) {
 		int zeroBased = insertIndex - 1;
@@ -2027,6 +2031,16 @@ LuaDialog* LuaDialog::show(sol::optional<sol::table> options) {
 	}
 
 	isShowing = true;
+
+	// Informa a cada aba o tamanho real do seu conteudo, para a barra
+	// de rolagem saber ate onde ir
+	if (currentNotebook) {
+		for (size_t i = 0; i < currentNotebook->GetPageCount(); ++i) {
+			if (auto* sw = dynamic_cast<wxScrolledWindow*>(currentNotebook->GetPage(i))) {
+				sw->FitInside();
+			}
+		}
+	}
 
 	if (waitMode) {
 		ShowModal();
