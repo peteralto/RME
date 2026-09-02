@@ -509,6 +509,17 @@ void MapCanvas::OnMouseMove(wxMouseEvent& event) {
 
 			Refresh();
 		} else if (boundbox_selection) {
+			if (map_update) {
+				wxString ss;
+
+				int move_x = std::abs(last_click_map_x - mouse_map_x);
+				int move_y = std::abs(last_click_map_y - mouse_map_y);
+				ss << "Selection " << move_x + 1 << ":" << move_y + 1;
+				g_gui.SetStatusText(ss);
+			}
+
+			Refresh();
+		}
 	} else { // Drawing mode
 		Brush* brush = g_gui.GetCurrentBrush();
 		if (map_update && drawing && brush) {
