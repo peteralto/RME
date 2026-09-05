@@ -41,9 +41,6 @@ static int AutoSpawnDistance(int size) {
 	return (2 * size) + 1;
 }
 
-BEGIN_EVENT_TABLE(AddSpawnsDialog, wxDialog)
-END_EVENT_TABLE()
-
 AddSpawnsDialog::AddSpawnsDialog(wxWindow* parent) :
 	wxDialog(parent, wxID_ANY, "Add Monster Spawns", wxDefaultPosition, wxDefaultSize, wxDEFAULT_DIALOG_STYLE) {
 
@@ -228,10 +225,16 @@ void AddSpawnsDialog::OnRemoveClicked(wxCommandEvent& WXUNUSED(event)) {
 	wxArrayInt selections;
 	chosen_list->GetSelections(selections);
 
+	std::vector<int> indices;
+	indices.reserve(selections.GetCount());
+	for (size_t i = 0; i < selections.GetCount(); ++i) {
+		indices.push_back(selections[i]);
+	}
+
 	// Backwards, so the earlier indices stay valid as entries are erased.
-	std::sort(selections.begin(), selections.end());
-	for (size_t i = selections.GetCount(); i > 0; --i) {
-		const int index = selections[i - 1];
+	std::sort(indices.begin(), indices.end());
+	for (size_t i = indices.size(); i > 0; --i) {
+		const int index = indices[i - 1];
 		chosen_creatures.erase(chosen_creatures.begin() + index);
 		chosen_list->Delete(index);
 	}
