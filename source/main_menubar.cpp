@@ -90,6 +90,8 @@ MainMenuBar::MainMenuBar(MainFrame* frame) :
 	MAKE_ACTION(SEARCH_ON_SELECTION_ITEM, wxITEM_NORMAL, OnSearchForItemOnSelection);
 	MAKE_ACTION(REPLACE_ON_SELECTION_ITEMS, wxITEM_NORMAL, OnReplaceItemsOnSelection);
 	MAKE_ACTION(REMOVE_ON_SELECTION_ITEM, wxITEM_NORMAL, OnRemoveItemOnSelection);
+	MAKE_ACTION(REMOVE_MONSTERS_ON_SELECTION, wxITEM_NORMAL, OnRemoveMonstersOnSelection);
+	MAKE_ACTION(REMOVE_SPAWNS_ON_SELECTION, wxITEM_NORMAL, OnRemoveSpawnsOnSelection);																					   																				   
 	MAKE_ACTION(SELECT_MODE_COMPENSATE, wxITEM_RADIO, OnSelectionTypeChange);
 	MAKE_ACTION(SELECT_MODE_LOWER, wxITEM_RADIO, OnSelectionTypeChange);
 	MAKE_ACTION(SELECT_MODE_CURRENT, wxITEM_RADIO, OnSelectionTypeChange);
@@ -414,6 +416,8 @@ void MainMenuBar::Update() {
 	EnableItem(SEARCH_ON_SELECTION_ITEM, has_selection && is_host);
 	EnableItem(REPLACE_ON_SELECTION_ITEMS, has_selection && is_host);
 	EnableItem(REMOVE_ON_SELECTION_ITEM, has_selection && is_host);
+	EnableItem(REMOVE_MONSTERS_ON_SELECTION, has_selection && is_host);
+	EnableItem(REMOVE_SPAWNS_ON_SELECTION, has_selection && is_host);																	
 
 	EnableItem(CUT, has_map);
 	EnableItem(COPY, has_map);
@@ -1200,6 +1204,88 @@ void MainMenuBar::OnReplaceItemsOnSelection(wxCommandEvent& WXUNUSED(event)) {
 	}
 }
 
+void MainMenuBar::OnRemoveMonstersOnSelection(wxCommandEvent& WXUNUSED(event)) {
+	RemoveCreaturesOnSelection(true, false, "Remove Monsters on Selection");
+}
+
+void MainMenuBar::OnRemoveSpawnsOnSelection(wxCommandEvent& WXUNUSED(event)) {
+	RemoveCreaturesOnSelection(false, true, "Remove Spawns on Selection");
+}
+
+// Unlike the "Remove All" entries under Map, this goes through the action queue,
+// so it is undoable. Action::commit already keeps the spawn bookkeeping
+// (Map::removeSpawn and the surrounding TileLocation spawn counters) and the
+// selection in sync when it swaps a tile, so removing the members here is enough.
+void MainMenuBar::RemoveCreaturesOnSelection(bool removeCreatures, bool removeSpawns, const wxString& title) {
+	if (!g_gui.IsEditorOpen()) {
+		return;
+	}
+
+	Editor* editor = g_gui.GetCurrentEditor();
+	if (!editor || editor->selection.size() == 0) {
+		return;
+	}
+
+	g_gui.CreateLoadBar("Removing from selection...");
+
+	Map& map = editor->map;
+	BatchAction* batch = editor->actionQueue->createBatch(ACTION_DELETE_TILES);
+	Action* action = editor->actionQueue->createAction(batch);
+
+	int64_t creatures_removed = 0;
+	int64_t spawns_removed = 0;
+
+	for (TileSet::iterator it = editor->selection.begin(); it != editor->selection.end(); ++it) {
+		Tile* tile = (*it);
+		if (!tile) {
+			continue;
+		}
+
+		const bool has_creature = removeCreatures && tile->creature;
+		const bool has_spawn = removeSpawns && tile->spawn;
+		if (!has_creature && !has_spawn) {
+			continue;
+		}
+
+		Tile* newtile = tile->deepCopy(map);
+
+		if (has_creature && newtile->creature) {
+			delete newtile->creature;
+			newtile->creature = nullptr;
+			++creatures_removed;
+		}
+
+		if (has_spawn && newtile->spawn) {
+			delete newtile->spawn;
+			newtile->spawn = nullptr;
+			++spawns_removed;
+		}
+
+		action->addChange(newd Change(newtile));
+	}
+
+	// Committed after the loop: the commit mutates the selection set that is
+	// being iterated above.
+	batch->addAndCommitAction(action);
+	editor->addBatch(batch);
+
+	g_gui.DestroyLoadBar();
+
+	wxString msg;
+	if (removeCreatures) {
+		msg << creatures_removed << " creature(s) removed.";
+	}
+	if (removeSpawns) {
+		if (removeCreatures) {
+			msg << "\n";
+		}
+		msg << spawns_removed << " spawn(s) removed.";
+	}
+	g_gui.PopupDialog(title, msg, wxOK);
+
+	map.doChange();
+	g_gui.RefreshView();
+}
 void MainMenuBar::OnRemoveItemOnSelection(wxCommandEvent& WXUNUSED(event)) {
 	if (!g_gui.IsEditorOpen()) {
 		return;
