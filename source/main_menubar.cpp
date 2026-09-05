@@ -18,6 +18,7 @@
 #include "main.h"
 
 #include "main_menubar.h"
+#include "add_spawns_window.h"							  
 #include "application.h"
 #include "preferences.h"
 #include "about_window.h"
@@ -91,6 +92,7 @@ MainMenuBar::MainMenuBar(MainFrame* frame) :
 	MAKE_ACTION(REPLACE_ON_SELECTION_ITEMS, wxITEM_NORMAL, OnReplaceItemsOnSelection);
 	MAKE_ACTION(REMOVE_ON_SELECTION_ITEM, wxITEM_NORMAL, OnRemoveItemOnSelection);
 	MAKE_ACTION(REMOVE_MONSTERS_ON_SELECTION, wxITEM_NORMAL, OnRemoveMonstersOnSelection);
+	MAKE_ACTION(ADD_SPAWNS_ON_SELECTION, wxITEM_NORMAL, OnAddSpawnsOnSelection);																			 
 	MAKE_ACTION(REMOVE_SPAWNS_ON_SELECTION, wxITEM_NORMAL, OnRemoveSpawnsOnSelection);																					   																				   
 	MAKE_ACTION(SELECT_MODE_COMPENSATE, wxITEM_RADIO, OnSelectionTypeChange);
 	MAKE_ACTION(SELECT_MODE_LOWER, wxITEM_RADIO, OnSelectionTypeChange);
@@ -417,6 +419,7 @@ void MainMenuBar::Update() {
 	EnableItem(REPLACE_ON_SELECTION_ITEMS, has_selection && is_host);
 	EnableItem(REMOVE_ON_SELECTION_ITEM, has_selection && is_host);
 	EnableItem(REMOVE_MONSTERS_ON_SELECTION, has_selection && is_host);
+	EnableItem(ADD_SPAWNS_ON_SELECTION, has_selection && is_host);															   
 	EnableItem(REMOVE_SPAWNS_ON_SELECTION, has_selection && is_host);																	
 
 	EnableItem(CUT, has_map);
@@ -1202,6 +1205,15 @@ void MainMenuBar::OnReplaceItemsOnSelection(wxCommandEvent& WXUNUSED(event)) {
 			window->ShowReplaceItemsDialog(true);
 		}
 	}
+}
+
+void MainMenuBar::OnAddSpawnsOnSelection(wxCommandEvent& WXUNUSED(event)) {
+	if (!g_gui.IsEditorOpen()) {
+		return;
+	}
+
+	AddSpawnsDialog dialog(frame);
+	dialog.ShowModal();
 }
 
 void MainMenuBar::OnRemoveMonstersOnSelection(wxCommandEvent& WXUNUSED(event)) {
