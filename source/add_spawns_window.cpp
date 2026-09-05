@@ -24,6 +24,7 @@
 #include "gui.h"
 
 #include <algorithm>
+#include <set>
 
 // Radius used when the user lets the editor pick one. A single creature only
 // needs to stand on its own tile; a group needs room for everyone around the
@@ -102,7 +103,7 @@ AddSpawnsDialog::AddSpawnsDialog(wxWindow* parent) :
 	grid->Add(auto_distance_check, 0, wxALIGN_CENTER_VERTICAL);
 
 	grid->Add(newd wxStaticText(this, wxID_ANY, "Spawn interval (seconds):"), 0, wxALIGN_CENTER_VERTICAL);
-	interval_spin = newd wxSpinCtrl(this, wxID_ANY, "60", wxDefaultPosition, wxSize(80, -1), wxSP_ARROW_KEYS, 1, 86400, g_gui.GetSpawnTime());
+	interval_spin = newd wxSpinCtrl(this, wxID_ANY, "150", wxDefaultPosition, wxSize(80, -1), wxSP_ARROW_KEYS, 1, 86400, 150);
 	grid->Add(interval_spin, 0);
 	grid->AddSpacer(0);
 
@@ -347,8 +348,13 @@ void AddSpawnsDialog::Execute() {
 	Action* action = editor->actionQueue->createAction(batch);
 
 	std::vector<Position> placed_centres;
+	// Every position that already received a creature in this run. The map is
+	// not touched until the action is committed, so this is the only way to know
+	// a tile is taken.
+	std::set<Position> occupied;
 	int spawns_created = 0;
 	int creatures_created = 0;
+	int creatures_skipped = 0;
 	size_t next_creature = 0;
 	size_t done = 0;
 
@@ -359,6 +365,10 @@ void AddSpawnsDialog::Execute() {
 
 		Tile* tile = (*it);
 		const Position& position = tile->getPosition();
+
+		if (occupied.count(position) > 0) {
+			continue;
+		}
 
 		// Chebyshev distance, because spawn radii are square in Tibia.
 		bool too_close = false;
@@ -383,19 +393,19 @@ void AddSpawnsDialog::Execute() {
 
 		if (grouped) {
 			// The centre gets the first creature; the rest are laid out on the
-			// nearest valid tiles inside the radius. Anything that does not fit
-			// is skipped rather than stacked, since a tile holds one creature.
-			size_t placed_here = 0;
-
+			// nearest free tiles inside the radius. Anything that does not fit is
+			// skipped rather than stacked, since a tile holds one creature.
 			CreatureType* centre_type = g_creatures[chosen_creatures[0]];
-			if (centre_type) {
-				newtile->creature = newd Creature(centre_type);
-				newtile->creature->setSpawnTime(interval);
-				++creatures_created;
-				++placed_here;
+			if (!centre_type) {
+				delete newtile;
+				continue;
 			}
 
+			newtile->creature = newd Creature(centre_type);
+			newtile->creature->setSpawnTime(interval);
 			action->addChange(newd Change(newtile));
+			occupied.insert(position);
+			++creatures_created;
 
 			for (size_t c = 1; c < chosen_creatures.size(); ++c) {
 				CreatureType* type = g_creatures[chosen_creatures[c]];
@@ -412,6 +422,16 @@ void AddSpawnsDialog::Execute() {
 							}
 
 							const Position member(position.x + dx, position.y + dy, position.z);
+
+							// The map still shows the tile as empty: our changes are
+							// only applied when the action is committed, at the end.
+							// Without this set every creature after the second would
+							// pick the same first free tile and overwrite the previous
+							// one, so only two ever survived per spawn.
+							if (occupied.count(member) > 0) {
+								continue;
+							}
+
 							Tile* member_tile = map.getTile(member);
 							if (!member_tile || !member_tile->ground || member_tile->isBlocking() || member_tile->creature) {
 								continue;
@@ -419,23 +439,25 @@ void AddSpawnsDialog::Execute() {
 							if (skip_pz_check->GetValue() && member_tile->isPZ()) {
 								continue;
 							}
+							if (skip_houses_check->GetValue() && member_tile->isHouseTile()) {
+								continue;
+							}
 
 							Tile* new_member = member_tile->deepCopy(map);
 							new_member->creature = newd Creature(type);
 							new_member->creature->setSpawnTime(interval);
 							action->addChange(newd Change(new_member));
+							occupied.insert(member);
 
 							++creatures_created;
-							++placed_here;
 							seated = true;
 						}
 					}
 				}
-			}
 
-			if (placed_here == 0) {
-				// Nothing could be seated -- do not leave an empty spawn behind.
-				continue;
+				if (!seated) {
+					++creatures_skipped;
+				}
 			}
 		} else {
 			// Round robin through the chosen types, so a mixed hunt ends up
@@ -453,6 +475,7 @@ void AddSpawnsDialog::Execute() {
 			++creatures_created;
 
 			action->addChange(newd Change(newtile));
+			occupied.insert(position);
 		}
 
 		placed_centres.push_back(position);
@@ -467,6 +490,10 @@ void AddSpawnsDialog::Execute() {
 
 	wxString message;
 	message << spawns_created << " spawn(s) created with " << creatures_created << " creature(s).";
+	if (creatures_skipped > 0) {
+		message << "\n" << creatures_skipped << " creature(s) had no free tile inside the spawn radius"
+				<< " -- try a larger spawn size.";
+	}
 	g_gui.PopupDialog("Add Monster Spawns", message, wxOK);
 
 	map.doChange();
